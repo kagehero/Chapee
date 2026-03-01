@@ -76,7 +76,7 @@ export default function AuthLayout({
           {children}
 
           <p className="text-center text-muted-foreground text-xs mt-6">
-            © 2024 Shopee Chat Manager. All rights reserved.
+            © {new Date().getFullYear()} Shopee Chat Manager. All rights reserved.
           </p>
         </div>
       </div>
