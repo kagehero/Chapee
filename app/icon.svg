@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <rect width="32" height="32" rx="8" fill="url(#g)"/>
+  <!-- Shopping bag: handle + body -->
+  <path d="M11 11V9a5 5 0 0 1 10 0v2M10 11h12l-1.2 10H11.2L10 11z" stroke="white" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+      <stop stop-color="hsl(262, 83%, 58%)"/>
+      <stop offset="1" stop-color="hsl(280, 70%, 55%)"/>
+    </linearGradient>
+  </defs>
+</svg>
