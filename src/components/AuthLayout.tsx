@@ -59,24 +59,24 @@ export default function AuthLayout({
       </div>
 
       {/* Right Panel - Form */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-background">
-        <div className="w-full max-w-md animate-fade-in">
-          <div className="lg:hidden flex items-center gap-3 mb-8">
+      <div className="flex-1 flex items-center justify-center p-4 sm:p-6 md:p-8 bg-background overflow-y-auto">
+        <div className="w-full max-w-md animate-fade-in py-4">
+          <div className="lg:hidden flex items-center gap-3 mb-6 sm:mb-8">
             <div className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center shadow-purple">
               <ShoppingBag size={20} className="text-primary-foreground" />
             </div>
             <h1 className="text-foreground font-bold text-xl">Shopee Chat Manager</h1>
           </div>
 
-          <div className="mb-8">
-            <h2 className="text-foreground text-2xl font-bold mb-1">{title}</h2>
+          <div className="mb-6 sm:mb-8">
+            <h2 className="text-foreground text-xl sm:text-2xl font-bold mb-1">{title}</h2>
             <p className="text-muted-foreground text-sm">{subtitle}</p>
           </div>
 
           {children}
 
           <p className="text-center text-muted-foreground text-xs mt-6">
-            © 2024 Shopee Chat Manager. All rights reserved.
+            © {new Date().getFullYear()} Shopee Chat Manager. All rights reserved.
           </p>
         </div>
       </div>

@@ -55,14 +55,14 @@ export default function TemplatesPage() {
   };
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="space-y-4 sm:space-y-5 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-foreground font-bold text-lg">テンプレート管理</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-foreground font-bold text-base sm:text-lg">テンプレート管理</h2>
           <p className="text-muted-foreground text-sm mt-0.5">国別・カテゴリ別に返信テンプレートを管理</p>
         </div>
-        <Button className="gradient-primary text-primary-foreground shadow-purple gap-1.5">
+        <Button className="gradient-primary text-primary-foreground shadow-purple gap-1.5 w-full sm:w-auto min-h-[44px] sm:min-h-0">
           <Plus size={15} />
           新規追加
         </Button>
@@ -70,13 +70,13 @@ export default function TemplatesPage() {
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
-        <div className="flex items-center gap-1 bg-card border border-border rounded-xl p-1 shadow-card overflow-x-auto">
+        <div className="flex items-center gap-1 bg-card border border-border rounded-xl p-1 shadow-card overflow-x-auto min-h-[44px]">
           {COUNTRIES.map(c => (
             <button
               key={c}
               onClick={() => setSelectedCountry(c)}
               className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap",
+                "px-3 py-2 sm:py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap min-h-[36px] sm:min-h-0",
                 selectedCountry === c
                   ? "gradient-primary text-primary-foreground shadow-purple"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -86,13 +86,13 @@ export default function TemplatesPage() {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-1 bg-card border border-border rounded-xl p-1 shadow-card overflow-x-auto">
+        <div className="flex items-center gap-1 bg-card border border-border rounded-xl p-1 shadow-card overflow-x-auto min-h-[44px]">
           {CATEGORIES.map(c => (
             <button
               key={c}
               onClick={() => setSelectedCategory(c)}
               className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap",
+                "px-3 py-2 sm:py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap min-h-[36px] sm:min-h-0",
                 selectedCategory === c
                   ? "gradient-primary text-primary-foreground shadow-purple"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -105,9 +105,9 @@ export default function TemplatesPage() {
       </div>
 
       {/* Template Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
         {filtered.map(t => (
-          <div key={t.id} className="bg-card rounded-xl border border-border shadow-card overflow-hidden">
+          <div key={t.id} className="bg-card rounded-xl border border-border shadow-card overflow-hidden min-w-0">
             {/* Card Header */}
             <div className="px-4 py-3 border-b border-border flex items-start justify-between gap-2">
               <div className="flex items-center gap-2 flex-wrap">

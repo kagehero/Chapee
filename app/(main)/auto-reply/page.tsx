@@ -49,15 +49,15 @@ export default function AutoReplyPage() {
   };
 
   return (
-    <div className="space-y-5 animate-fade-in max-w-4xl">
+    <div className="space-y-4 sm:space-y-5 animate-fade-in max-w-4xl w-full min-w-0">
       {/* Header */}
-      <div>
-        <h2 className="text-foreground font-bold text-lg">自動返信設定</h2>
+      <div className="min-w-0">
+        <h2 className="text-foreground font-bold text-base sm:text-lg">自動返信設定</h2>
         <p className="text-muted-foreground text-sm mt-0.5">国別に自動返信の条件と内容を設定します</p>
       </div>
 
       {/* Country Selector */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3">
         {COUNTRIES.map(country => {
           const c = configs[country];
           return (
@@ -65,7 +65,7 @@ export default function AutoReplyPage() {
               key={country}
               onClick={() => setSelectedCountry(country)}
               className={cn(
-                "relative rounded-xl p-3 border transition-all",
+                "relative rounded-xl p-3 border transition-all min-h-[64px] sm:min-h-0",
                 selectedCountry === country
                   ? "gradient-primary border-transparent shadow-purple"
                   : "bg-card border-border hover:border-primary/30 shadow-card"
@@ -91,9 +91,9 @@ export default function AutoReplyPage() {
       </div>
 
       {/* Config Panel */}
-      <div className="bg-card rounded-xl border border-border shadow-card overflow-hidden">
+      <div className="bg-card rounded-xl border border-border shadow-card overflow-hidden min-w-0">
         {/* Panel Header */}
-        <div className="px-5 py-4 border-b border-border flex items-center justify-between gradient-primary">
+        <div className="px-3 sm:px-5 py-4 border-b border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 gradient-primary">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 bg-primary-foreground/20 rounded-lg flex items-center justify-center">
               <Globe size={14} className="text-primary-foreground" />
@@ -112,7 +112,7 @@ export default function AutoReplyPage() {
           </div>
         </div>
 
-        <div className={cn("p-5 space-y-6 transition-opacity", !cfg.enabled && "opacity-50 pointer-events-none")}>
+        <div className={cn("p-4 sm:p-5 space-y-6 transition-opacity", !cfg.enabled && "opacity-50 pointer-events-none")}>
           {/* Trigger Hour */}
           <div className="space-y-3">
             <div className="flex items-center gap-2">
@@ -163,7 +163,7 @@ export default function AutoReplyPage() {
                     key={status}
                     onClick={() => toggleStatus(status)}
                     className={cn(
-                      "px-3 py-1.5 rounded-lg text-xs font-medium transition-all border",
+                      "px-3 py-2 sm:py-1.5 rounded-lg text-xs font-medium transition-all border min-h-[40px] sm:min-h-0",
                       selected
                         ? "gradient-primary text-primary-foreground border-transparent shadow-purple"
                         : "bg-muted text-muted-foreground border-border hover:border-primary/30 hover:text-foreground"

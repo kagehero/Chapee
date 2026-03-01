@@ -57,31 +57,31 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="space-y-4 sm:space-y-5 animate-fade-in">
       {/* Stats Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {stats.map(({ label, value, icon: Icon, color, bg }) => (
-          <div key={label} className={cn("rounded-xl p-4 border flex items-center gap-4 shadow-card bg-card", bg)}>
-            <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center gradient-primary")}>
+          <div key={label} className={cn("rounded-xl p-3 sm:p-4 border flex items-center gap-3 sm:gap-4 shadow-card bg-card min-w-0", bg)}>
+            <div className={cn("w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center gradient-primary flex-shrink-0")}>
               <Icon size={18} className="text-primary-foreground" />
             </div>
-            <div>
-              <p className="text-muted-foreground text-xs font-medium">{label}</p>
-              <p className={cn("text-2xl font-bold", color)}>{value}</p>
+            <div className="min-w-0">
+              <p className="text-muted-foreground text-xs font-medium truncate">{label}</p>
+              <p className={cn("text-xl sm:text-2xl font-bold truncate", color)}>{value}</p>
             </div>
           </div>
         ))}
       </div>
 
       {/* Country Tabs + Search */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-        <div className="flex items-center gap-1 bg-card border border-border rounded-xl p-1 shadow-card overflow-x-auto">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        <div className="flex items-center gap-1 bg-card border border-border rounded-xl p-1 shadow-card overflow-x-auto scrollbar-thin min-h-[44px]">
           {COUNTRIES.map((c) => (
             <button
               key={c}
               onClick={() => setSelectedCountry(c)}
               className={cn(
-                "px-3 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap",
+                "px-3 py-2 sm:py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap min-h-[36px] sm:min-h-0",
                 selectedCountry === c
                   ? "gradient-primary text-primary-foreground shadow-purple"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -116,7 +116,7 @@ export default function DashboardPage() {
         </div>
         <div className="divide-y divide-border">
           {filtered.length === 0 ? (
-            <div className="py-16 text-center text-muted-foreground text-sm">
+            <div className="py-12 sm:py-16 text-center text-muted-foreground text-sm px-4">
               <MessageSquare size={32} className="mx-auto mb-3 opacity-30" />
               未返信チャットはありません
             </div>
@@ -127,7 +127,7 @@ export default function DashboardPage() {
                 <div
                   key={chat.id}
                   onClick={() => router.push(`/chats/${chat.id}`)}
-                  className="flex items-center gap-4 px-4 py-3.5 hover:bg-primary-subtle/50 cursor-pointer transition-colors group"
+                  className="flex items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3.5 hover:bg-primary-subtle/50 active:bg-primary-subtle/70 cursor-pointer transition-colors group min-h-[72px] sm:min-h-0"
                 >
                   {/* Country Badge */}
                   <div className="flex-shrink-0 w-9 h-9 gradient-primary rounded-lg flex items-center justify-center shadow-sm">

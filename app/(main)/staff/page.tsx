@@ -62,15 +62,15 @@ export default function StaffPage() {
   };
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="space-y-4 sm:space-y-5 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-foreground font-bold text-lg">担当者管理</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-foreground font-bold text-base sm:text-lg">担当者管理</h2>
           <p className="text-muted-foreground text-sm mt-0.5">チームメンバーと権限を管理します</p>
         </div>
         <Button
-          className="gradient-primary text-primary-foreground shadow-purple gap-1.5"
+          className="gradient-primary text-primary-foreground shadow-purple gap-1.5 w-full sm:w-auto min-h-[44px] sm:min-h-0"
           onClick={() => setShowAdd(!showAdd)}
         >
           <Plus size={15} />
@@ -79,15 +79,15 @@ export default function StaffPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
         {[
           { label: "総担当者数", value: staff.length },
           { label: "オンライン", value: staff.filter(s => s.status === "online").length },
           { label: "対応中チャット", value: staff.reduce((a, s) => a + s.activeChats, 0) },
         ].map(({ label, value }) => (
-          <div key={label} className="bg-card rounded-xl border border-border shadow-card p-4 text-center">
-            <p className="text-2xl font-bold text-primary">{value}</p>
-            <p className="text-muted-foreground text-xs mt-0.5">{label}</p>
+          <div key={label} className="bg-card rounded-xl border border-border shadow-card p-3 sm:p-4 text-center min-w-0">
+            <p className="text-xl sm:text-2xl font-bold text-primary">{value}</p>
+            <p className="text-muted-foreground text-xs mt-0.5 truncate">{label}</p>
           </div>
         ))}
       </div>
@@ -164,7 +164,7 @@ export default function StaffPage() {
         </div>
         <div className="divide-y divide-border">
           {staff.map(s => (
-            <div key={s.id} className="flex items-center gap-4 px-4 py-3.5 hover:bg-primary-subtle/30 transition-colors">
+            <div key={s.id} className="flex flex-wrap items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3.5 hover:bg-primary-subtle/30 transition-colors min-h-[72px] sm:min-h-0">
               {/* Avatar */}
               <div className="relative flex-shrink-0">
                 <div className="w-9 h-9 gradient-primary rounded-full flex items-center justify-center">
