@@ -4,6 +4,14 @@ import { useState } from "react";
 import { Plus, Edit2, Trash2, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 const ROLES = ["管理者", "オペレーター", "閲覧者"];
@@ -71,12 +79,104 @@ export default function StaffPage() {
         </div>
         <Button
           className="gradient-primary text-primary-foreground shadow-purple gap-1.5 w-full sm:w-auto min-h-[44px] sm:min-h-0"
-          onClick={() => setShowAdd(!showAdd)}
+          onClick={() => setShowAdd(true)}
         >
           <Plus size={15} />
           担当者追加
         </Button>
       </div>
+
+      {/* 新規担当者追加モーダル */}
+      <Dialog open={showAdd} onOpenChange={setShowAdd}>
+        <DialogContent className="sm:max-w-md border-border shadow-card">
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center">
+                <Plus size={14} className="text-primary-foreground" />
+              </div>
+              <DialogTitle className="text-base">新規担当者登録</DialogTitle>
+            </div>
+            <DialogDescription className="text-left text-xs">
+              氏名・メール・権限・担当国を入力して登録します
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">氏名</label>
+                <Input
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  placeholder="田中 太郎"
+                  className="text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">メールアドレス</label>
+                <Input
+                  value={newEmail}
+                  onChange={e => setNewEmail(e.target.value)}
+                  placeholder="email@company.jp"
+                  type="email"
+                  className="text-sm"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">権限</label>
+              <div className="flex flex-wrap gap-2">
+                {ROLES.map(r => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setNewRole(r)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-xs font-medium transition-all border",
+                      newRole === r
+                        ? "gradient-primary text-primary-foreground border-transparent shadow-purple"
+                        : "bg-muted text-muted-foreground border-border hover:border-primary/30"
+                    )}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">担当国</label>
+              <div className="flex flex-wrap gap-2">
+                {COUNTRIES.map(c => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => toggleCountry(c)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-xs font-medium transition-all border",
+                      newCountries.includes(c)
+                        ? "gradient-primary text-primary-foreground border-transparent shadow-purple"
+                        : "bg-muted text-muted-foreground border-border hover:border-primary/30"
+                    )}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" size="sm" onClick={() => setShowAdd(false)}>
+              キャンセル
+            </Button>
+            <Button
+              size="sm"
+              className="gradient-primary text-primary-foreground shadow-purple"
+              onClick={addStaff}
+            >
+              登録する
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
@@ -91,70 +191,6 @@ export default function StaffPage() {
           </div>
         ))}
       </div>
-
-      {/* Add Form */}
-      {showAdd && (
-        <div className="bg-card rounded-xl border border-primary/30 shadow-purple p-5 space-y-4 animate-fade-in">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-6 h-6 gradient-primary rounded-md flex items-center justify-center">
-              <Plus size={12} className="text-primary-foreground" />
-            </div>
-            <p className="font-semibold text-foreground text-sm">新規担当者登録</p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">氏名</label>
-              <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="田中 太郎" className="text-sm" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">メールアドレス</label>
-              <Input value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="email@company.jp" type="email" className="text-sm" />
-            </div>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">権限</label>
-            <div className="flex gap-2">
-              {ROLES.map(r => (
-                <button
-                  key={r}
-                  onClick={() => setNewRole(r)}
-                  className={cn(
-                    "px-3 py-1.5 rounded-lg text-xs font-medium transition-all border",
-                    newRole === r
-                      ? "gradient-primary text-primary-foreground border-transparent shadow-purple"
-                      : "bg-muted text-muted-foreground border-border hover:border-primary/30"
-                  )}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">担当国</label>
-            <div className="flex flex-wrap gap-2">
-              {COUNTRIES.map(c => (
-                <button
-                  key={c}
-                  onClick={() => toggleCountry(c)}
-                  className={cn(
-                    "px-2.5 py-1 rounded-lg text-xs font-medium transition-all border",
-                    newCountries.includes(c)
-                      ? "gradient-primary text-primary-foreground border-transparent shadow-purple"
-                      : "bg-muted text-muted-foreground border-border hover:border-primary/30"
-                  )}
-                >
-                  {c}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" size="sm" onClick={() => setShowAdd(false)}>キャンセル</Button>
-            <Button size="sm" className="gradient-primary text-primary-foreground shadow-purple" onClick={addStaff}>登録する</Button>
-          </div>
-        </div>
-      )}
 
       {/* Staff Table */}
       <div className="bg-card rounded-xl border border-border shadow-card overflow-hidden">
