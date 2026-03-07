@@ -62,7 +62,7 @@ export default function AuthLayout({
       <div className="flex-1 flex items-center justify-center p-4 sm:p-6 md:p-8 bg-background overflow-y-auto">
         <div className="w-full max-w-md animate-fade-in py-4">
           <div className="lg:hidden flex items-center gap-3 mb-6 sm:mb-8">
-            <div className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center shadow-purple">
+            <div className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center shadow-green">
               <ShoppingBag size={20} className="text-primary-foreground" />
             </div>
             <h1 className="text-foreground font-bold text-xl">Shopee Chat Manager</h1>

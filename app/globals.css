@@ -6,33 +6,33 @@
 
 @layer base {
   :root {
-    /* Purple & White Design System */
-    --background: 250 50% 98%;
-    --foreground: 262 30% 15%;
+    /* Green & Fresh Design System - Shopee Chat Manager */
+    --background: 0 0% 98%;
+    --foreground: 0 0% 10%;
 
     --card: 0 0% 100%;
-    --card-foreground: 262 30% 15%;
+    --card-foreground: 0 0% 10%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 262 30% 15%;
+    --popover-foreground: 0 0% 10%;
 
-    /* Primary: Rich Purple */
-    --primary: 262 83% 58%;
+    /* Primary: Emerald Green (#10B981 / #059669) */
+    --primary: 160 84% 39%;
     --primary-foreground: 0 0% 100%;
 
-    /* Primary Dark */
-    --primary-dark: 262 83% 45%;
-    --primary-light: 262 83% 72%;
-    --primary-subtle: 262 60% 96%;
+    /* Primary Shades */
+    --primary-dark: 160 84% 30%;
+    --primary-light: 160 84% 50%;
+    --primary-subtle: 160 60% 96%;
 
-    --secondary: 262 30% 95%;
-    --secondary-foreground: 262 50% 30%;
+    --secondary: 160 10% 95%;
+    --secondary-foreground: 160 30% 30%;
 
-    --muted: 262 20% 94%;
-    --muted-foreground: 262 15% 55%;
+    --muted: 0 0% 94%;
+    --muted-foreground: 0 0% 45%;
 
-    --accent: 262 60% 90%;
-    --accent-foreground: 262 83% 45%;
+    --accent: 160 50% 90%;
+    --accent-foreground: 160 84% 35%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
@@ -43,31 +43,31 @@
     --success: 142 71% 45%;
     --success-foreground: 0 0% 100%;
 
-    --border: 262 20% 88%;
-    --input: 262 20% 88%;
-    --ring: 262 83% 58%;
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 160 84% 39%;
 
-    --radius: 0.625rem;
+    --radius: 0.75rem;
 
-    /* Gradients */
-    --gradient-primary: linear-gradient(135deg, hsl(262 83% 58%), hsl(280 70% 55%));
-    --gradient-sidebar: linear-gradient(180deg, hsl(262 83% 40%) 0%, hsl(270 70% 32%) 100%);
-    --gradient-hero: linear-gradient(135deg, hsl(262 83% 55%) 0%, hsl(280 75% 48%) 100%);
-    --gradient-card: linear-gradient(135deg, hsl(262 83% 58% / 0.08), hsl(280 70% 55% / 0.04));
+    /* Green Gradients */
+    --gradient-primary: linear-gradient(135deg, #10B981, #059669);
+    --gradient-sidebar: linear-gradient(180deg, #059669 0%, #047857 100%);
+    --gradient-hero: linear-gradient(135deg, #10B981 0%, #059669 100%);
+    --gradient-card: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(5, 150, 105, 0.04));
 
-    /* Shadows */
-    --shadow-sm: 0 1px 3px hsl(262 83% 58% / 0.12);
-    --shadow-md: 0 4px 16px hsl(262 83% 58% / 0.16);
-    --shadow-lg: 0 8px 32px hsl(262 83% 58% / 0.2);
-    --shadow-card: 0 2px 8px hsl(262 30% 20% / 0.08);
+    /* Shadows with green tint */
+    --shadow-sm: 0 1px 3px rgba(5, 150, 105, 0.12);
+    --shadow-md: 0 4px 16px rgba(5, 150, 105, 0.16);
+    --shadow-lg: 0 8px 32px rgba(5, 150, 105, 0.2);
+    --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06);
 
-    --sidebar-background: 262 83% 38%;
+    --sidebar-background: 160 84% 35%;
     --sidebar-foreground: 0 0% 100%;
     --sidebar-primary: 0 0% 100%;
-    --sidebar-primary-foreground: 262 83% 38%;
-    --sidebar-accent: 262 60% 50%;
+    --sidebar-primary-foreground: 160 84% 35%;
+    --sidebar-accent: 160 84% 45%;
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 262 50% 48%;
+    --sidebar-border: 160 84% 40%;
     --sidebar-ring: 0 0% 100%;
   }
 }
@@ -90,31 +90,50 @@
 
 @layer utilities {
   .gradient-primary {
-    background: var(--gradient-primary);
+    background: linear-gradient(135deg, #10B981, #059669);
   }
 
   .gradient-sidebar {
-    background: var(--gradient-sidebar);
+    background: linear-gradient(180deg, #10B981 0%, #059669 100%);
   }
 
   .gradient-hero {
-    background: var(--gradient-hero);
+    background: linear-gradient(135deg, #10B981 0%, #059669 100%);
   }
 
   .gradient-card {
-    background: var(--gradient-card);
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(5, 150, 105, 0.04));
+  }
+
+  .gradient-accent {
+    background: linear-gradient(135deg, #34D399, #10B981);
   }
 
   .shadow-card {
     box-shadow: var(--shadow-card);
   }
 
-  .shadow-purple {
+  .shadow-green {
     box-shadow: var(--shadow-md);
   }
 
-  .shadow-purple-lg {
+  .shadow-green-lg {
     box-shadow: var(--shadow-lg);
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.3s ease-in;
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .scrollbar-thin {

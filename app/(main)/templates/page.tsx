@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-const COUNTRIES = ["全て", "SG", "PH", "MY", "TH", "ID", "VN"];
+const COUNTRIES = ["全て", "SG", "PH", "MY", "TW", "TH", "ID", "VN", "BR"];
 const CATEGORIES = ["全て", "発送前", "配達後", "返品・交換", "一般対応", "自動返信"];
 
 const mockTemplates = [
@@ -62,7 +62,7 @@ export default function TemplatesPage() {
           <h2 className="text-foreground font-bold text-base sm:text-lg">テンプレート管理</h2>
           <p className="text-muted-foreground text-sm mt-0.5">国別・カテゴリ別に返信テンプレートを管理</p>
         </div>
-        <Button className="gradient-primary text-primary-foreground shadow-purple gap-1.5 w-full sm:w-auto min-h-[44px] sm:min-h-0">
+        <Button className="gradient-primary text-primary-foreground shadow-green gap-1.5 w-full sm:w-auto min-h-[44px] sm:min-h-0">
           <Plus size={15} />
           新規追加
         </Button>
@@ -78,7 +78,7 @@ export default function TemplatesPage() {
               className={cn(
                 "px-3 py-2 sm:py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap min-h-[36px] sm:min-h-0",
                 selectedCountry === c
-                  ? "gradient-primary text-primary-foreground shadow-purple"
+                  ? "gradient-primary text-primary-foreground shadow-green"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
               )}
             >
@@ -94,7 +94,7 @@ export default function TemplatesPage() {
               className={cn(
                 "px-3 py-2 sm:py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap min-h-[36px] sm:min-h-0",
                 selectedCategory === c
-                  ? "gradient-primary text-primary-foreground shadow-purple"
+                  ? "gradient-primary text-primary-foreground shadow-green"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
               )}
             >

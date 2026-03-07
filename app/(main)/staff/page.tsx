@@ -15,7 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const ROLES = ["管理者", "オペレーター", "閲覧者"];
-const COUNTRIES = ["SG", "PH", "MY", "TH", "ID", "VN"];
+const COUNTRIES = ["SG", "PH", "MY", "TW", "TH", "ID", "VN", "BR"];
 
 const mockStaff = [
   { id: 1, name: "田中 太郎", email: "tanaka@company.jp", role: "管理者", countries: ["SG", "MY", "TH"], activeChats: 3, status: "online" },
@@ -78,7 +78,7 @@ export default function StaffPage() {
           <p className="text-muted-foreground text-sm mt-0.5">チームメンバーと権限を管理します</p>
         </div>
         <Button
-          className="gradient-primary text-primary-foreground shadow-purple gap-1.5 w-full sm:w-auto min-h-[44px] sm:min-h-0"
+          className="gradient-primary text-primary-foreground shadow-green gap-1.5 w-full sm:w-auto min-h-[44px] sm:min-h-0"
           onClick={() => setShowAdd(true)}
         >
           <Plus size={15} />
@@ -133,7 +133,7 @@ export default function StaffPage() {
                     className={cn(
                       "px-3 py-1.5 rounded-lg text-xs font-medium transition-all border",
                       newRole === r
-                        ? "gradient-primary text-primary-foreground border-transparent shadow-purple"
+                        ? "gradient-primary text-primary-foreground border-transparent shadow-green"
                         : "bg-muted text-muted-foreground border-border hover:border-primary/30"
                     )}
                   >
@@ -153,7 +153,7 @@ export default function StaffPage() {
                     className={cn(
                       "px-2.5 py-1 rounded-lg text-xs font-medium transition-all border",
                       newCountries.includes(c)
-                        ? "gradient-primary text-primary-foreground border-transparent shadow-purple"
+                        ? "gradient-primary text-primary-foreground border-transparent shadow-green"
                         : "bg-muted text-muted-foreground border-border hover:border-primary/30"
                     )}
                   >
@@ -169,7 +169,7 @@ export default function StaffPage() {
             </Button>
             <Button
               size="sm"
-              className="gradient-primary text-primary-foreground shadow-purple"
+              className="gradient-primary text-primary-foreground shadow-green"
               onClick={addStaff}
             >
               登録する

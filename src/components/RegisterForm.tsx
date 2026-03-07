@@ -149,7 +149,7 @@ export default function RegisterForm() {
         <Button
           type="submit"
           disabled={loading}
-          className="w-full gradient-primary text-primary-foreground font-semibold py-2.5 shadow-purple hover:shadow-purple-lg transition-all hover:opacity-90"
+          className="w-full gradient-primary text-primary-foreground font-semibold py-2.5 shadow-green hover:shadow-green-lg transition-all hover:opacity-90"
         >
           <UserPlus size={16} className="mr-2" />
           {loading ? "登録中..." : "新規登録"}

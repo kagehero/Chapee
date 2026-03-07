@@ -6,7 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
-const COUNTRIES = ["SG", "PH", "MY", "TH", "ID", "VN"];
+const COUNTRIES = ["SG", "PH", "MY", "TW", "TH", "ID", "VN", "BR"];
 const ORDER_STATUSES = ["注文受付", "発送準備中", "発送済み", "配達中", "配達完了", "キャンセル"];
 
 type CountryConfig = {
@@ -67,7 +67,7 @@ export default function AutoReplyPage() {
               className={cn(
                 "relative rounded-xl p-3 border transition-all min-h-[64px] sm:min-h-0",
                 selectedCountry === country
-                  ? "gradient-primary border-transparent shadow-purple"
+                  ? "gradient-primary border-transparent shadow-green"
                   : "bg-card border-border hover:border-primary/30 shadow-card"
               )}
             >
@@ -207,7 +207,7 @@ export default function AutoReplyPage() {
 
           {/* Save */}
           <div className="flex justify-end">
-            <button className="gradient-primary text-primary-foreground px-5 py-2 rounded-lg text-sm font-semibold shadow-purple hover:shadow-purple-lg transition-all hover:opacity-90">
+            <button className="gradient-primary text-primary-foreground px-5 py-2 rounded-lg text-sm font-semibold shadow-green hover:shadow-green-lg transition-all hover:opacity-90">
               設定を保存
             </button>
           </div>

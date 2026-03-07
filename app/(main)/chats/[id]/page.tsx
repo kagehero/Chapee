@@ -293,17 +293,20 @@ export default function ChatDetailPage() {
               onChange={e => setInputMessage(e.target.value)}
               className="resize-none text-sm min-h-[72px] min-w-0 flex-1"
               onKeyDown={e => {
-                if (e.key === "Enter" && e.metaKey) handleSend();
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  handleSend();
+                }
               }}
             />
             <Button
               onClick={handleSend}
-              className="gradient-primary text-primary-foreground shadow-purple self-end h-10 sm:h-10 px-4 min-h-[44px] flex-shrink-0"
+              className="gradient-primary text-primary-foreground shadow-green self-end h-10 sm:h-10 px-4 min-h-[44px] flex-shrink-0 gap-2"
             >
               <Send size={14} />
             </Button>
           </div>
-          <p className="text-muted-foreground text-xs text-right hidden sm:block">⌘+Enter で送信</p>
+          <p className="text-muted-foreground text-xs text-right hidden sm:block">Ctrl+Enter (⌘+Enter) で送信</p>
         </div>
       </div>
     </div>
