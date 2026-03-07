@@ -103,7 +103,7 @@ export default function SettingsPage() {
       
       if (!res.ok) throw new Error(data.error || "同期に失敗しました");
       
-      const totalSynced = data.results.reduce((sum: number, r: any) => sum + (r.synced || 0), 0);
+      const totalSynced = data.results.reduce((sum: number, r: { synced?: number }) => sum + (r.synced || 0), 0);
       toast.success(`${totalSynced}件の会話を同期しました`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "同期に失敗しました");
