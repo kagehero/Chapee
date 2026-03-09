@@ -1,17 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import {
   ArrowLeft, Send, Languages, Package, Clock,
-  ChevronDown, FileText, ShoppingBag, Copy, User, Info
+  ChevronDown, FileText, ShoppingBag, Copy, User, Info,
+  Paperclip, Image as ImageIcon, File, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
-const mockMessages = [
+type AttachedFile = {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  url: string;
+};
+
+type Message = {
+  id: number;
+  sender: "customer" | "staff";
+  content: string;
+  time: string;
+  translated: boolean;
+  attachments?: AttachedFile[];
+};
+
+const mockMessages: Message[] = [
   { id: 1, sender: "customer", content: "こんにちは！注文した商品はいつ届きますか？", time: "10:00", translated: false },
   { id: 2, sender: "staff", content: "ご注文ありがとうございます。現在、発送準備中です。", time: "10:15", translated: false },
   { id: 3, sender: "customer", content: "追跡番号を教えていただけますか？", time: "11:30", translated: false },
@@ -41,6 +59,8 @@ export default function ChatDetailPage() {
   const [translating, setTranslating] = useState<number | null>(null);
   const [translatedMessages, setTranslatedMessages] = useState<Record<number, string>>({});
   const [infoOpen, setInfoOpen] = useState(false);
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleTranslate = (msgId: number, content: string) => {
     setTranslating(msgId);
@@ -54,15 +74,71 @@ export default function ChatDetailPage() {
   };
 
   const handleSend = () => {
-    if (!inputMessage.trim()) return;
-    setMessages(prev => [...prev, {
-      id: prev.length + 1,
+    if (!inputMessage.trim() && attachedFiles.length === 0) return;
+    
+    const newMessage: Message = {
+      id: messages.length + 1,
       sender: "staff",
       content: inputMessage,
       time: new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }),
       translated: false,
-    }]);
+      attachments: attachedFiles.length > 0 ? [...attachedFiles] : undefined,
+    };
+    
+    setMessages(prev => [...prev, newMessage]);
     setInputMessage("");
+    setAttachedFiles([]);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    Array.from(files).forEach(file => {
+      // Check file size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        alert(`${file.name} is too large. Maximum file size is 10MB.`);
+        return;
+      }
+
+      // Check file type
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+      if (!allowedTypes.includes(file.type)) {
+        alert(`${file.name} is not a supported file type.`);
+        return;
+      }
+
+      // Create preview URL
+      const url = URL.createObjectURL(file);
+      const newFile: AttachedFile = {
+        id: Math.random().toString(36).substring(7),
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        url,
+      };
+
+      setAttachedFiles(prev => [...prev, newFile]);
+    });
+
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const removeFile = (id: string) => {
+    setAttachedFiles(prev => {
+      const file = prev.find(f => f.id === id);
+      if (file) URL.revokeObjectURL(file.url);
+      return prev.filter(f => f.id !== id);
+    });
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
   const selectTemplate = (name: string) => {
@@ -195,14 +271,75 @@ export default function ChatDetailPage() {
                 "max-w-[85%] sm:max-w-[75%] space-y-1",
                 msg.sender === "staff" ? "items-end" : "items-start"
               )}>
-                <div className={cn(
-                  "rounded-xl px-3.5 py-2.5 text-sm shadow-sm",
-                  msg.sender === "staff"
-                    ? "gradient-primary text-primary-foreground rounded-br-sm"
-                    : "bg-muted text-foreground rounded-bl-sm"
-                )}>
-                  {msg.content}
-                </div>
+                {/* Message text */}
+                {msg.content && (
+                  <div className={cn(
+                    "rounded-xl px-3.5 py-2.5 text-sm shadow-sm",
+                    msg.sender === "staff"
+                      ? "gradient-primary text-primary-foreground rounded-br-sm"
+                      : "bg-muted text-foreground rounded-bl-sm"
+                  )}>
+                    {msg.content}
+                  </div>
+                )}
+
+                {/* Attachments */}
+                {msg.attachments && msg.attachments.length > 0 && (
+                  <div className="space-y-2">
+                    {msg.attachments.map((file) => (
+                      <div key={file.id}>
+                        {file.type.startsWith('image/') ? (
+                          // Image preview
+                          <div className={cn(
+                            "rounded-xl overflow-hidden shadow-md border-2 max-w-[300px]",
+                            msg.sender === "staff" ? "border-primary" : "border-gray-200"
+                          )}>
+                            <img 
+                              src={file.url} 
+                              alt={file.name}
+                              className="w-full h-auto object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                              onClick={() => window.open(file.url, '_blank')}
+                            />
+                            <div className={cn(
+                              "px-2 py-1.5 text-xs",
+                              msg.sender === "staff" 
+                                ? "bg-primary text-white" 
+                                : "bg-gray-100 text-gray-700"
+                            )}>
+                              <div className="flex items-center gap-1.5">
+                                <ImageIcon size={12} />
+                                <span className="truncate flex-1">{file.name}</span>
+                                <span className="text-xs opacity-75">{formatFileSize(file.size)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          // Document file
+                          <div className={cn(
+                            "rounded-xl px-3 py-2.5 shadow-sm border-2 flex items-center gap-2 cursor-pointer hover:opacity-90 transition-opacity",
+                            msg.sender === "staff"
+                              ? "gradient-primary text-primary-foreground border-primary"
+                              : "bg-white text-gray-900 border-gray-200"
+                          )}
+                          onClick={() => window.open(file.url, '_blank')}
+                          >
+                            <File size={20} className={msg.sender === "staff" ? "text-white" : "text-gray-600"} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{file.name}</p>
+                              <p className={cn(
+                                "text-xs",
+                                msg.sender === "staff" ? "text-white/80" : "text-gray-500"
+                              )}>
+                                {formatFileSize(file.size)}
+                              </p>
+                            </div>
+                            <Paperclip size={16} className={msg.sender === "staff" ? "text-white/60" : "text-gray-400"} />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {translatedMessages[msg.id] && (
                   <div className="bg-primary-subtle border border-primary/20 rounded-lg px-3 py-2 text-xs text-primary">
@@ -272,6 +409,23 @@ export default function ChatDetailPage() {
             <Button
               variant="outline"
               size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              className="h-8 sm:h-7 text-xs gap-1 min-h-[44px] sm:min-h-0 text-primary"
+            >
+              <Paperclip size={12} />
+              添付
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*,.pdf,.doc,.docx"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+            <Button
+              variant="outline"
+              size="sm"
               className="h-8 sm:h-7 text-xs gap-1 border-primary/30 text-primary hover:bg-primary-subtle min-h-[44px] sm:min-h-0 hidden sm:flex"
             >
               <Languages size={12} />
@@ -286,6 +440,39 @@ export default function ChatDetailPage() {
               コピー
             </Button>
           </div>
+
+          {/* Attached Files Preview */}
+          {attachedFiles.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {attachedFiles.map(file => (
+                <div
+                  key={file.id}
+                  className="flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-2 text-sm"
+                >
+                  {file.type.startsWith('image/') ? (
+                    <ImageIcon size={16} className="text-blue-600" />
+                  ) : (
+                    <File size={16} className="text-gray-600" />
+                  )}
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-gray-900 text-xs font-medium truncate max-w-[150px]">
+                      {file.name}
+                    </span>
+                    <span className="text-gray-500 text-xs">
+                      {formatFileSize(file.size)}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => removeFile(file.id)}
+                    className="ml-1 text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex gap-2">
             <Textarea
               placeholder="メッセージを入力..."
@@ -306,7 +493,9 @@ export default function ChatDetailPage() {
               <Send size={14} />
             </Button>
           </div>
-          <p className="text-muted-foreground text-xs text-right hidden sm:block">Ctrl+Enter (⌘+Enter) で送信</p>
+          <p className="text-muted-foreground text-xs text-right hidden sm:block">
+            Ctrl+Enter (⌘+Enter) で送信 | 画像・PDF・Word対応（最大10MB）
+          </p>
         </div>
       </div>
     </div>
