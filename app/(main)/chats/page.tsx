@@ -270,10 +270,23 @@ export default function ChatsPage() {
                 const statusInfo = statusConfig[chat.status];
                 const StatusIcon = statusInfo.icon;
                 
+                // 経過時間に応じた背景色を決定（未対応のみ）
+                let rowBgColor = "";
+                if (chat.status === "open" && chat.unread > 0) {
+                  if (chat.elapsed >= 11) {
+                    rowBgColor = "bg-red-50/50"; // 11時間以上: 赤
+                  } else if (chat.elapsed >= 8) {
+                    rowBgColor = "bg-orange-50/50"; // 8時間以上: オレンジ
+                  }
+                }
+                
                 return (
                   <tr 
                     key={chat.id}
-                    className="hover:bg-gray-50 cursor-pointer transition-colors"
+                    className={cn(
+                      "hover:bg-gray-50 cursor-pointer transition-colors",
+                      rowBgColor
+                    )}
                     onClick={() => router.push(`/chats/${chat.id}`)}
                   >
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
