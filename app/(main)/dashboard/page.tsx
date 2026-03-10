@@ -233,12 +233,17 @@ export default function DashboardPage() {
                   </div>
                   <p className="text-2xl font-bold text-gray-900">{countryChats.length}</p>
                   <p className="text-xs text-gray-500 mt-1">チャット</p>
-                  {unreadCount > 0 && (
-                    <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 border border-red-200">
-                      <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>
-                      <span className="text-xs font-semibold text-red-600">{unreadCount}件未読</span>
-                    </div>
-                  )}
+                  {/* Fixed height area for unread badge */}
+                  <div className="mt-2 h-6 flex items-center justify-center">
+                    {unreadCount > 0 ? (
+                      <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 border border-red-200">
+                        <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>
+                        <span className="text-xs font-semibold text-red-600">{unreadCount}件未読</span>
+                      </div>
+                    ) : (
+                      <div className="h-6"></div>
+                    )}
+                  </div>
                 </div>
               </button>
             );
