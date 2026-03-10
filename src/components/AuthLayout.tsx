@@ -23,7 +23,8 @@ export default function AuthLayout({
           <div className="w-20 h-20 bg-primary-foreground/20 rounded-2xl flex items-center justify-center mx-auto mb-6 backdrop-blur-sm border border-primary-foreground/20">
             <ShoppingBag size={40} className="text-primary-foreground" />
           </div>
-          <h1 className="text-primary-foreground text-3xl font-bold mb-3">Shopee Chat Manager</h1>
+          <h1 className="text-primary-foreground text-4xl font-bold mb-2">Chapee</h1>
+          <p className="text-primary-foreground/90 text-sm mb-3">Shopee Chat Manager</p>
           <p className="text-primary-foreground/80 text-base max-w-sm mx-auto leading-relaxed">
             多店舗・多国対応のチャット管理プラットフォーム
           </p>
@@ -39,29 +40,18 @@ export default function AuthLayout({
             ))}
           </div>
 
-          <div className="mt-8 flex items-center justify-center gap-6 text-primary-foreground/70 text-sm">
-            <div className="text-center">
-              <p className="text-2xl font-bold text-primary-foreground">98%</p>
-              <p className="text-xs">応答率</p>
+          <div className="mt-8 space-y-3">
+            <div className="bg-primary-foreground/10 backdrop-blur-sm border border-primary-foreground/20 rounded-xl px-4 py-3 text-primary-foreground">
+              <p className="text-sm font-semibold mb-1"> 期限厳守の自動応答機能</p>
+              <p className="text-xs text-primary-foreground/70">返信期限を逃さない安心設計</p>
             </div>
-            <div className="w-px h-8 bg-primary-foreground/20" />
-            <div className="text-center">
-              <p className="text-2xl font-bold text-primary-foreground">3h</p>
-              <p className="text-xs">平均応答時間</p>
+            <div className="bg-primary-foreground/10 backdrop-blur-sm border border-primary-foreground/20 rounded-xl px-4 py-3 text-primary-foreground">
+              <p className="text-sm font-semibold mb-1"> メイン・サブアカウント対応</p>
+              <p className="text-xs text-primary-foreground/70">複数アカウントの一元管理</p>
             </div>
-            <div className="w-px h-8 bg-primary-foreground/20" />
-            <div className="text-center">
-              <p className="text-2xl font-bold text-primary-foreground">7か国</p>
-              <p className="text-xs">対応可能</p>
-            </div>
-          </div>
-          
-          <div className="mt-6 space-y-2">
-            <div className="bg-primary-foreground/10 backdrop-blur-sm border border-primary-foreground/20 rounded-xl px-4 py-2 text-primary-foreground text-sm">
-              SG / PH / MY / TW / TH / VN / BR
-            </div>
-            <div className="bg-primary-foreground/10 backdrop-blur-sm border border-primary-foreground/20 rounded-xl px-4 py-2 text-primary-foreground text-sm">
-              メイン・サブアカウント対応
+            <div className="bg-primary-foreground/10 backdrop-blur-sm border border-primary-foreground/20 rounded-xl px-4 py-3 text-primary-foreground">
+              <p className="text-sm font-semibold mb-1"> 7か国対応（SG/PH/MY/TW/TH/VN/BR）</p>
+              <p className="text-xs text-primary-foreground/70">グローバル展開をサポート</p>
             </div>
           </div>
         </div>
@@ -74,7 +64,10 @@ export default function AuthLayout({
             <div className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center shadow-green">
               <ShoppingBag size={20} className="text-primary-foreground" />
             </div>
-            <h1 className="text-foreground font-bold text-xl">Shopee Chat Manager</h1>
+            <div>
+              <h1 className="text-foreground font-bold text-xl">Chapee</h1>
+              <p className="text-muted-foreground text-xs">Shopee Chat Manager</p>
+            </div>
           </div>
 
           <div className="mb-6 sm:mb-8">
@@ -85,7 +78,7 @@ export default function AuthLayout({
           {children}
 
           <p className="text-center text-muted-foreground text-xs mt-6">
-            © {new Date().getFullYear()} Shopee Chat Manager. All rights reserved.
+            © {new Date().getFullYear()} Chapee. All rights reserved.
           </p>
         </div>
       </div>
