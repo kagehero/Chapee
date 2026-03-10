@@ -3,6 +3,9 @@ import { getConversations } from "@/lib/shopee-api";
 import { getValidToken, getConnectedShops } from "@/lib/shopee-token";
 import { getCollection } from "@/lib/mongodb";
 
+// Feature flag: Set to true to use Shopee API, false to use mock data
+const USE_REAL_API = false;
+
 type ShopeeMessage = {
   message_id: string;
   message: string;
@@ -33,6 +36,25 @@ export async function GET(request: NextRequest) {
   try {
     console.log("[Sync] Starting conversation sync...");
     
+    // Use mock data if API is not available
+    if (!USE_REAL_API) {
+      console.log("[Sync] Using mock data - skipping Shopee API call");
+      return NextResponse.json({
+        success: true,
+        message: "Mock mode: Using local mock data. No sync needed.",
+        results: [
+          {
+            shop_id: 1689220556,
+            country: "SG",
+            synced: 10,
+            total: 10,
+            note: "Using mock data"
+          }
+        ],
+      });
+    }
+
+    // Real API implementation (for future use)
     const { searchParams } = new URL(request.url);
     const shopIdParam = searchParams.get("shop_id");
 
