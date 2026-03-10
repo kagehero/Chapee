@@ -5,23 +5,27 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   MessageSquare, Clock, AlertTriangle, AlertCircle,
-  User, ChevronRight, Search, RefreshCw, Loader2, Settings
+  User, ChevronRight, Search, RefreshCw, Loader2, Settings,
+  ShoppingCart, Bell, TrendingUp, Users
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
-const COUNTRIES = ["全て", "SG", "PH", "MY", "TW", "TH", "ID", "VN", "BR"];
+const COUNTRIES = ["全て", "SG", "PH", "MY", "TW", "TH", "VN", "BR"];
+
+// チャットタイプ定義
+type ChatType = "buyer" | "notification" | "affiliate";
 
 const mockChats = [
-  { id: 1, country: "SG", customer: "Lee Wei Ming", product: "USB-C Hub 7-in-1", lastMessage: "商品はいつ届きますか？", time: "14:32", elapsed: 11.5, staff: "田中", status: "urgent", unread: 2 },
-  { id: 2, country: "PH", customer: "Maria Santos", product: "Wireless Earbuds Pro", lastMessage: "配達状況を確認したいです", time: "13:15", elapsed: 9.2, staff: "佐藤", status: "warning", unread: 0 },
-  { id: 3, country: "MY", customer: "Ahmad Farid", product: "Gaming Mouse X1", lastMessage: "返品したいです", time: "12:45", elapsed: 12.1, staff: "未割当", status: "critical", unread: 3 },
-  { id: 4, country: "SG", customer: "Jenny Tan", product: "Laptop Stand Pro", lastMessage: "注文をキャンセルしたい", time: "11:20", elapsed: 8.5, staff: "山田", status: "normal", unread: 0 },
-  { id: 5, country: "TH", customer: "Somchai K.", product: "Mechanical Keyboard", lastMessage: "色違いに変更できますか？", time: "10:55", elapsed: 13.2, staff: "未割当", status: "critical", unread: 1 },
-  { id: 6, country: "ID", customer: "Budi Santoso", product: "Smart Watch Series 5", lastMessage: "故障しています", time: "16:10", elapsed: 6.3, staff: "鈴木", status: "normal", unread: 0 },
-  { id: 7, country: "VN", customer: "Nguyen Van A", product: "Phone Case Bundle", lastMessage: "追跡番号を教えてください", time: "15:45", elapsed: 7.8, staff: "田中", status: "normal", unread: 0 },
-  { id: 8, country: "MY", customer: "Lim Chee Keong", product: "Portable Charger 20000mAh", lastMessage: "領収書が必要です", time: "09:30", elapsed: 10.3, staff: "佐藤", status: "warning", unread: 1 },
+  { id: 1, country: "SG", customer: "Lee Wei Ming", product: "USB-C Hub 7-in-1", lastMessage: "商品はいつ届きますか？", time: "14:32", elapsed: 11.5, staff: "田中", status: "urgent", unread: 2, type: "buyer" as ChatType },
+  { id: 2, country: "PH", customer: "Shopee通知", product: "返品リクエスト", lastMessage: "返品リクエストが届きました", time: "13:15", elapsed: 9.2, staff: "佐藤", status: "warning", unread: 1, type: "notification" as ChatType },
+  { id: 3, country: "MY", customer: "Ahmad Farid", product: "Gaming Mouse X1", lastMessage: "返品したいです", time: "12:45", elapsed: 12.1, staff: "未割当", status: "critical", unread: 3, type: "buyer" as ChatType },
+  { id: 4, country: "SG", customer: "Shopee通知", product: "キャンセルリクエスト", lastMessage: "キャンセルリクエストが届きました", time: "11:20", elapsed: 8.5, staff: "山田", status: "normal", unread: 1, type: "notification" as ChatType },
+  { id: 5, country: "TH", customer: "Somchai K.", product: "Mechanical Keyboard", lastMessage: "色違いに変更できますか？", time: "10:55", elapsed: 13.2, staff: "未割当", status: "critical", unread: 1, type: "buyer" as ChatType },
+  { id: 6, country: "VN", customer: "アフィリエイター", product: "商品プロモーション", lastMessage: "新商品のアフィリエイトについて", time: "16:10", elapsed: 6.3, staff: "鈴木", status: "normal", unread: 0, type: "affiliate" as ChatType },
+  { id: 7, country: "VN", customer: "Nguyen Van A", product: "Phone Case Bundle", lastMessage: "追跡番号を教えてください", time: "15:45", elapsed: 7.8, staff: "田中", status: "normal", unread: 0, type: "buyer" as ChatType },
+  { id: 8, country: "MY", customer: "Shopee通知", product: "配達完了通知", lastMessage: "商品が配達されました", time: "09:30", elapsed: 10.3, staff: "佐藤", status: "warning", unread: 0, type: "notification" as ChatType },
 ];
 
 const statusColors = {
@@ -29,6 +33,30 @@ const statusColors = {
   warning: "text-warning bg-warning/10 border-warning/20",
   urgent: "text-orange-500 bg-orange-50 border-orange-200",
   critical: "text-destructive bg-destructive/10 border-destructive/20",
+};
+
+const chatTypeConfig = {
+  buyer: { 
+    label: "バイヤー", 
+    icon: ShoppingCart, 
+    color: "text-blue-600", 
+    bg: "bg-blue-50",
+    description: "通常のバイヤーからのチャット"
+  },
+  notification: { 
+    label: "通知", 
+    icon: Bell, 
+    color: "text-amber-600", 
+    bg: "bg-amber-50",
+    description: "Shopeeからの各種通知"
+  },
+  affiliate: { 
+    label: "アフィリエイト", 
+    icon: TrendingUp, 
+    color: "text-purple-600", 
+    bg: "bg-purple-50",
+    description: "アフィリエイターからのチャット"
+  },
 };
 
 const statusLabel = (elapsed: number) => {
@@ -41,13 +69,13 @@ const statusLabel = (elapsed: number) => {
 export default function DashboardPage() {
   const router = useRouter();
   const [selectedCountry, setSelectedCountry] = useState("全て");
+  const [selectedType, setSelectedType] = useState<ChatType | "all">("all");
   const [search, setSearch] = useState("");
   const [loading] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   const handleSync = async () => {
     setSyncing(true);
-    // Simulate sync delay
     setTimeout(() => {
       setSyncing(false);
     }, 1500);
@@ -55,27 +83,39 @@ export default function DashboardPage() {
 
   const filtered = mockChats.filter(c => {
     const matchCountry = selectedCountry === "全て" || c.country === selectedCountry;
+    const matchType = selectedType === "all" || c.type === selectedType;
     const matchSearch = c.customer.toLowerCase().includes(search.toLowerCase()) ||
       c.product.toLowerCase().includes(search.toLowerCase());
-    return matchCountry && matchSearch;
+    return matchCountry && matchType && matchSearch;
   });
 
+  // チャットタイプ別の統計
+  const buyerChats = mockChats.filter(c => c.type === "buyer");
+  const notificationChats = mockChats.filter(c => c.type === "notification");
+  const affiliateChats = mockChats.filter(c => c.type === "affiliate");
+
   const stats = [
-    { label: "未返信", value: mockChats.length, icon: MessageSquare, color: "text-primary", bg: "bg-primary-subtle border-primary/20" },
-    { label: "10時間超", value: mockChats.filter(c => c.elapsed >= 10).length, icon: Clock, color: "text-warning", bg: "bg-warning/10 border-warning/20" },
-    { label: "11時間超", value: mockChats.filter(c => c.elapsed >= 11).length, icon: AlertTriangle, color: "text-orange-500", bg: "bg-orange-50 border-orange-200" },
-    { label: "12時間超", value: mockChats.filter(c => c.elapsed >= 12).length, icon: AlertCircle, color: "text-destructive", bg: "bg-destructive/10 border-destructive/20" },
+    { label: "バイヤーチャット", value: buyerChats.length, icon: ShoppingCart, color: "text-blue-600", bg: "bg-blue-50 border-blue-200" },
+    { label: "Shopee通知", value: notificationChats.length, icon: Bell, color: "text-amber-600", bg: "bg-amber-50 border-amber-200" },
+    { label: "アフィリエイト", value: affiliateChats.length, icon: TrendingUp, color: "text-purple-600", bg: "bg-purple-50 border-purple-200" },
+    { label: "未返信合計", value: mockChats.filter(c => c.unread > 0).length, icon: AlertCircle, color: "text-red-600", bg: "bg-red-50 border-red-200" },
   ];
 
   return (
     <div className="space-y-5 animate-fade-in">
-      {/* Modern Stats Row with Different Design */}
+      {/* チャットタイプ別統計カード */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map(({ label, value, icon: Icon, color, bg }, index) => (
           <div 
             key={label} 
-            className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm hover:shadow-md transition-all duration-200 group"
+            className="relative overflow-hidden rounded-2xl border bg-white shadow-sm hover:shadow-md transition-all duration-200 group cursor-pointer"
             style={{ animationDelay: `${index * 50}ms` }}
+            onClick={() => {
+              if (label === "バイヤーチャット") setSelectedType("buyer");
+              else if (label === "Shopee通知") setSelectedType("notification");
+              else if (label === "アフィリエイト") setSelectedType("affiliate");
+              else setSelectedType("all");
+            }}
           >
             <div className="p-5 flex flex-col">
               <div className="flex items-center justify-between mb-3">
@@ -88,10 +128,48 @@ export default function DashboardPage() {
               </div>
               <p className="text-gray-600 text-sm font-medium">{label}</p>
             </div>
-            {/* Decorative gradient overlay */}
             <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-gray-50/50 opacity-0 group-hover:opacity-100 transition-opacity" />
           </div>
         ))}
+      </div>
+
+      {/* チャットタイプフィルター */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+        <div className="flex items-center gap-3 mb-3">
+          <MessageSquare size={18} className="text-gray-600" />
+          <span className="text-gray-900 font-semibold text-sm">チャットタイプで絞り込み</span>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => setSelectedType("all")}
+            className={cn(
+              "px-4 py-2 rounded-xl text-sm font-semibold transition-all border-2",
+              selectedType === "all"
+                ? "bg-primary text-white border-primary"
+                : "bg-white text-gray-700 border-gray-200 hover:border-primary/50"
+            )}
+          >
+            全て
+          </button>
+          {(Object.entries(chatTypeConfig) as [ChatType, typeof chatTypeConfig[ChatType]][]).map(([type, config]) => {
+            const Icon = config.icon;
+            return (
+              <button
+                key={type}
+                onClick={() => setSelectedType(type)}
+                className={cn(
+                  "px-4 py-2 rounded-xl text-sm font-semibold transition-all border-2 flex items-center gap-2",
+                  selectedType === type
+                    ? "bg-primary text-white border-primary"
+                    : "bg-white text-gray-700 border-gray-200 hover:border-primary/50"
+                )}
+              >
+                <Icon size={16} />
+                {config.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Country Tabs + Search with Modern Design */}
@@ -184,6 +262,8 @@ export default function DashboardPage() {
           ) : (
             filtered.map((chat, index) => {
               const s = statusLabel(chat.elapsed);
+              const typeConfig = chatTypeConfig[chat.type];
+              const TypeIcon = typeConfig.icon;
               return (
                 <div
                   key={chat.id}
@@ -200,6 +280,14 @@ export default function DashboardPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-gray-900 font-semibold text-sm">{chat.customer}</span>
+                      {/* チャットタイプバッジ */}
+                      <div className={cn(
+                        "flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium",
+                        typeConfig.bg, typeConfig.color
+                      )}>
+                        <TypeIcon size={12} />
+                        <span>{typeConfig.label}</span>
+                      </div>
                       {chat.unread > 0 && (
                         <span className="text-xs px-2 py-0.5 rounded-full bg-red-500 text-white font-semibold">
                           {chat.unread}

@@ -15,7 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const ROLES = ["管理者", "オペレーター", "閲覧者"];
-const COUNTRIES = ["SG", "PH", "MY", "TW", "TH", "ID", "VN", "BR"];
+const COUNTRIES = ["SG", "PH", "MY", "TW", "TH", "VN", "BR"];
 
 const mockStaff = [
   { id: 1, name: "田中 太郎", email: "tanaka@company.jp", role: "管理者", countries: ["SG", "MY", "TH"], activeChats: 3, status: "online" },

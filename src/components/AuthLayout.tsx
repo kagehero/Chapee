@@ -29,7 +29,7 @@ export default function AuthLayout({
           </p>
 
           <div className="mt-10 grid grid-cols-3 gap-4">
-            {["🇸🇬 SG", "🇵🇭 PH", "🇲🇾 MY"].map((country) => (
+            {["SG", "PH", "MY", "TW", "TH", "VN", "BR"].map((country) => (
               <div
                 key={country}
                 className="bg-primary-foreground/15 backdrop-blur-sm border border-primary-foreground/20 rounded-xl p-3 text-primary-foreground text-sm font-medium"
@@ -51,8 +51,17 @@ export default function AuthLayout({
             </div>
             <div className="w-px h-8 bg-primary-foreground/20" />
             <div className="text-center">
-              <p className="text-2xl font-bold text-primary-foreground">5ヶ国</p>
+              <p className="text-2xl font-bold text-primary-foreground">7か国</p>
               <p className="text-xs">対応可能</p>
+            </div>
+          </div>
+          
+          <div className="mt-6 space-y-2">
+            <div className="bg-primary-foreground/10 backdrop-blur-sm border border-primary-foreground/20 rounded-xl px-4 py-2 text-primary-foreground text-sm">
+              SG / PH / MY / TW / TH / VN / BR
+            </div>
+            <div className="bg-primary-foreground/10 backdrop-blur-sm border border-primary-foreground/20 rounded-xl px-4 py-2 text-primary-foreground text-sm">
+              メイン・サブアカウント対応
             </div>
           </div>
         </div>

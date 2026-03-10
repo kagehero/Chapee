@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-const COUNTRIES = ["全て", "SG", "PH", "MY", "TW", "TH", "ID", "VN", "BR"];
+const COUNTRIES = ["全て", "SG", "PH", "MY", "TW", "TH", "VN", "BR"];
 const CATEGORIES = ["全て", "発送前", "配達後", "返品・交換", "一般対応", "自動返信"];
 
 const mockTemplates = [

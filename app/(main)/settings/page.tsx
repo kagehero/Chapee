@@ -24,7 +24,6 @@ const COUNTRIES = [
   { code: "MY", name: "Malaysia" },
   { code: "TW", name: "Taiwan" },
   { code: "TH", name: "Thailand" },
-  { code: "ID", name: "Indonesia" },
   { code: "VN", name: "Vietnam" },
   { code: "BR", name: "Brazil" },
 ];
