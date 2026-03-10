@@ -1,16 +1,17 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import {
   ArrowLeft, Send, Languages, Package, Clock,
   ChevronDown, FileText, ShoppingBag, Copy, User, Info,
-  Paperclip, Image as ImageIcon, File, X
+  Paperclip, Image as ImageIcon, File, X, Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 type AttachedFile = {
   id: string;
@@ -49,11 +50,22 @@ const templateTexts: Record<string, string> = {
   "レビューのお願い": "この度はお買い上げいただきありがとうございます。商品はいかがでしたでしょうか？ぜひレビューをお寄せください。",
 };
 
+type ConversationType = {
+  id: string;
+  customer_name: string;
+  customer_id: number;
+  country: string;
+  shop_id: number;
+};
+
 export default function ChatDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const id = params?.id;
-  const [messages, setMessages] = useState(mockMessages);
+  const id = params?.id as string;
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [conversation, setConversation] = useState<ConversationType | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
   const [inputMessage, setInputMessage] = useState("");
   const [showTemplates, setShowTemplates] = useState(false);
   const [translating, setTranslating] = useState<number | null>(null);
@@ -61,6 +73,30 @@ export default function ChatDetailPage() {
   const [infoOpen, setInfoOpen] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load messages from API
+  useEffect(() => {
+    if (id) {
+      loadMessages();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  const loadMessages = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/chats/${id}/messages`);
+      if (!res.ok) throw new Error("Failed to load messages");
+      const data = await res.json();
+      setConversation(data.conversation);
+      setMessages(data.messages || []);
+    } catch (error) {
+      console.error("Load messages error:", error);
+      toast.error("メッセージの読み込みに失敗しました");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleTranslate = (msgId: number, content: string) => {
     setTranslating(msgId);
@@ -73,21 +109,43 @@ export default function ChatDetailPage() {
     }, 1000);
   };
 
-  const handleSend = () => {
+
+  const handleSend = async () => {
     if (!inputMessage.trim() && attachedFiles.length === 0) return;
     
-    const newMessage: Message = {
-      id: messages.length + 1,
-      sender: "staff",
-      content: inputMessage,
-      time: new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }),
-      translated: false,
-      attachments: attachedFiles.length > 0 ? [...attachedFiles] : undefined,
-    };
-    
-    setMessages(prev => [...prev, newMessage]);
-    setInputMessage("");
-    setAttachedFiles([]);
+    setSending(true);
+    try {
+      const res = await fetch(`/api/chats/${id}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: inputMessage }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "送信に失敗しました");
+      }
+
+      // Add message to local state immediately
+      const newMessage: Message = {
+        id: Date.now(),
+        sender: "staff",
+        content: inputMessage,
+        time: new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }),
+        translated: false,
+        attachments: attachedFiles.length > 0 ? [...attachedFiles] : undefined,
+      };
+      
+      setMessages(prev => [...prev, newMessage]);
+      setInputMessage("");
+      setAttachedFiles([]);
+      toast.success("メッセージを送信しました");
+    } catch (error) {
+      console.error("Send error:", error);
+      toast.error(error instanceof Error ? error.message : "送信に失敗しました");
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -158,60 +216,37 @@ export default function ChatDetailPage() {
         一覧に戻る
       </Button>
 
-      <div className="bg-card rounded-xl border border-border shadow-card p-4 space-y-3">
-        <div className="flex items-center gap-2 pb-2 border-b border-border">
-          <div className="w-8 h-8 gradient-primary rounded-full flex items-center justify-center">
-            <User size={14} className="text-primary-foreground" />
+      {conversation && (
+        <>
+          <div className="bg-card rounded-xl border border-border shadow-card p-4 space-y-3">
+            <div className="flex items-center gap-2 pb-2 border-b border-border">
+              <div className="w-8 h-8 gradient-primary rounded-full flex items-center justify-center">
+                <User size={14} className="text-primary-foreground" />
+              </div>
+              <div>
+                <p className="text-foreground font-semibold text-sm">{conversation.customer_name}</p>
+                <p className="text-muted-foreground text-xs">{conversation.country}顧客</p>
+              </div>
+            </div>
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">国</span>
+                <span className="font-semibold px-1.5 py-0.5 gradient-primary text-primary-foreground rounded text-xs">
+                  {conversation.country}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Shop ID</span>
+                <span className="text-foreground font-medium">{conversation.shop_id}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Customer ID</span>
+                <span className="text-foreground font-medium">{conversation.customer_id}</span>
+              </div>
+            </div>
           </div>
-          <div>
-            <p className="text-foreground font-semibold text-sm">Lee Wei Ming</p>
-            <p className="text-muted-foreground text-xs">SG顧客</p>
-          </div>
-        </div>
-        <div className="space-y-2 text-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">国</span>
-            <span className="font-semibold px-1.5 py-0.5 gradient-primary text-primary-foreground rounded text-xs">🇸🇬 SG</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">注文ID</span>
-            <span className="text-foreground font-medium">#SG-2024-0892</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">担当者</span>
-            <span className="text-foreground font-medium">田中</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">経過時間</span>
-            <span className="text-destructive font-bold">11.5h</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-card rounded-xl border border-border shadow-card p-4 space-y-3">
-        <div className="flex items-center gap-2 mb-2">
-          <div className="w-6 h-6 gradient-primary rounded-lg flex items-center justify-center">
-            <ShoppingBag size={12} className="text-primary-foreground" />
-          </div>
-          <p className="text-foreground font-semibold text-sm">注文情報</p>
-        </div>
-        <div className="bg-muted rounded-lg p-2.5">
-          <p className="text-foreground text-xs font-medium">USB-C Hub 7-in-1</p>
-          <p className="text-muted-foreground text-xs mt-0.5">数量: 1 | SGD 45.90</p>
-        </div>
-        <div className="space-y-1.5 text-xs">
-          <div className="flex items-center gap-1.5">
-            <Package size={11} className="text-primary" />
-            <span className="text-muted-foreground">ステータス:</span>
-            <span className="text-warning font-semibold">発送準備中</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Clock size={11} className="text-primary" />
-            <span className="text-muted-foreground">注文日:</span>
-            <span className="text-foreground">2024-01-15</span>
-          </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 
@@ -253,16 +288,27 @@ export default function ChatDetailPage() {
               <Info size={18} />
             </button>
             <MessageIcon />
-            <p className="text-primary-foreground font-semibold text-sm truncate">Lee Wei Ming とのチャット</p>
+            <p className="text-primary-foreground font-semibold text-sm truncate">
+              {conversation?.customer_name || "読み込み中..."} とのチャット
+            </p>
           </div>
           <span className="text-primary-foreground/80 text-xs bg-primary-foreground/20 px-2 py-0.5 rounded-full shrink-0">
-            🇸🇬 SG
+            {conversation?.country || "..."}
           </span>
         </div>
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin">
-          {messages.map((msg) => (
+          {loading ? (
+            <div className="flex items-center justify-center h-full">
+              <Loader2 className="animate-spin text-primary" size={32} />
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+              メッセージはありません
+            </div>
+          ) : (
+            messages.map((msg) => (
             <div
               key={msg.id}
               className={cn("flex", msg.sender === "staff" ? "justify-end" : "justify-start")}
@@ -286,7 +332,7 @@ export default function ChatDetailPage() {
                 {/* Attachments */}
                 {msg.attachments && msg.attachments.length > 0 && (
                   <div className="space-y-2">
-                    {msg.attachments.map((file) => (
+                    {msg.attachments.map((file: AttachedFile) => (
                       <div key={file.id}>
                         {file.type.startsWith('image/') ? (
                           // Image preview
@@ -365,7 +411,8 @@ export default function ChatDetailPage() {
                 </div>
               </div>
             </div>
-          ))}
+          ))
+          )}
         </div>
 
         {/* Template Picker */}
