@@ -83,7 +83,16 @@ function verifyWebhookSignature(
 /**
  * Handle new message webhook
  */
-async function handleNewMessage(data: any) {
+async function handleNewMessage(data: {
+  shop_id: number;
+  conversation_id: string;
+  to_id: number;
+  to_name: string;
+  message: string;
+  message_id: string;
+  timestamp: number;
+  from_id: number;
+}) {
   try {
     const {
       shop_id,
@@ -143,7 +152,10 @@ async function handleNewMessage(data: any) {
 /**
  * Handle message read webhook
  */
-async function handleMessageRead(data: any) {
+async function handleMessageRead(data: {
+  shop_id: number;
+  conversation_id: string;
+}) {
   try {
     const { shop_id, conversation_id } = data;
 
@@ -167,7 +179,11 @@ async function handleMessageRead(data: any) {
 /**
  * Handle conversation update (pin/unpin)
  */
-async function handleConversationUpdate(data: any) {
+async function handleConversationUpdate(data: {
+  shop_id: number;
+  conversation_id: string;
+  pinned?: boolean;
+}) {
   try {
     const { shop_id, conversation_id, pinned } = data;
 

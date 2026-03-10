@@ -46,8 +46,15 @@ export async function GET(
 
     const shopeeMessages = response.response?.messages || [];
 
+    type ShopeeMessage = {
+      message_id?: string;
+      from_id: number;
+      message: string;
+      timestamp: number;
+    };
+
     // Transform messages
-    const messages = shopeeMessages.map((msg: any, index: number) => ({
+    const messages = shopeeMessages.map((msg: ShopeeMessage, index: number) => ({
       id: msg.message_id || index,
       sender: msg.from_id === conversation.shop_id ? "staff" : "customer",
       content: msg.message,

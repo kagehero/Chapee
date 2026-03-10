@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
       updated_at: Date;
     }>("shopee_conversations");
 
-    const filter: any = {};
+    const filter: Record<string, string> = {};
     if (country && country !== "全て") filter.country = country;
     if (status) filter.status = status;
 

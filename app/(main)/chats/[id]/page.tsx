@@ -50,12 +50,20 @@ const templateTexts: Record<string, string> = {
   "レビューのお願い": "この度はお買い上げいただきありがとうございます。商品はいかがでしたでしょうか？ぜひレビューをお寄せください。",
 };
 
+type ConversationType = {
+  id: string;
+  customer_name: string;
+  customer_id: number;
+  country: string;
+  shop_id: number;
+};
+
 export default function ChatDetailPage() {
   const router = useRouter();
   const params = useParams();
   const id = params?.id as string;
-  const [messages, setMessages] = useState<any[]>([]);
-  const [conversation, setConversation] = useState<any>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [conversation, setConversation] = useState<ConversationType | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [inputMessage, setInputMessage] = useState("");
@@ -71,6 +79,7 @@ export default function ChatDetailPage() {
     if (id) {
       loadMessages();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const loadMessages = async () => {

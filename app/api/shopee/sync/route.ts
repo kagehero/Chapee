@@ -21,7 +21,7 @@ type ShopeeConversation = {
   pinned: boolean;
   last_message_timestamp: number;
   last_message_type: string;
-  max_general_option_list?: any[];
+  max_general_option_list?: unknown[];
 };
 
 /**
