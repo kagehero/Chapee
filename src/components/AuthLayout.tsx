@@ -1,6 +1,8 @@
 "use client";
 
-import { ShoppingBag } from "lucide-react";
+import Image from "next/image";
+
+const APP_ICON = "/icon.png";
 
 export default function AuthLayout({
   children,
@@ -20,11 +22,21 @@ export default function AuthLayout({
         <div className="absolute top-1/2 left-1/2 w-64 h-64 rounded-full bg-primary-foreground/5 -translate-x-1/2 -translate-y-1/2" />
 
         <div className="relative z-10 text-center">
-          <div className="w-20 h-20 bg-primary-foreground/20 rounded-2xl flex items-center justify-center mx-auto mb-6 backdrop-blur-sm border border-primary-foreground/20">
-            <ShoppingBag size={40} className="text-primary-foreground" />
+          <div className="flex items-center justify-center gap-3 mb-6">
+            <div className="w-16 h-16 rounded-2xl bg-white/10 border border-primary-foreground/30 flex items-center justify-center shadow-md backdrop-blur-sm overflow-hidden">
+              <Image
+                src={APP_ICON}
+                alt="Chapee"
+                width={40}
+                height={40}
+                className="object-contain"
+              />
+            </div>
+            <div className="text-left">
+              <h1 className="text-primary-foreground text-3xl font-bold leading-tight">Chapee</h1>
+              <p className="text-primary-foreground/90 text-sm leading-tight">Shopee Chat Manager</p>
+            </div>
           </div>
-          <h1 className="text-primary-foreground text-4xl font-bold mb-2">Chapee</h1>
-          <p className="text-primary-foreground/90 text-sm mb-3">Shopee Chat Manager</p>
           <p className="text-primary-foreground/80 text-base max-w-sm mx-auto leading-relaxed">
             多店舗・多国対応のチャット管理プラットフォーム
           </p>
@@ -61,8 +73,14 @@ export default function AuthLayout({
       <div className="flex-1 flex items-center justify-center p-4 sm:p-6 md:p-8 bg-background overflow-y-auto">
         <div className="w-full max-w-md animate-fade-in py-4">
           <div className="lg:hidden flex items-center gap-3 mb-6 sm:mb-8">
-            <div className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center shadow-green">
-              <ShoppingBag size={20} className="text-primary-foreground" />
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/90 flex items-center justify-center shadow-green overflow-hidden">
+              <Image
+                src={APP_ICON}
+                alt="Chapee"
+                width={28}
+                height={28}
+                className="object-contain"
+              />
             </div>
             <div>
               <h1 className="text-foreground font-bold text-xl">Chapee</h1>

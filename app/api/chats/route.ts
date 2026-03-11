@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
     const country = searchParams.get("country");
     const status = searchParams.get("status");
     const type = searchParams.get("type");
+    const searchQuery = searchParams.get("search")?.trim() ?? "";
 
     // Use mock data if API is not available
     if (!USE_REAL_API) {
@@ -42,6 +43,14 @@ export async function GET(request: NextRequest) {
       }
       if (type) {
         filteredChats = filteredChats.filter(c => c.type === type);
+      }
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase().replace(/\s+/g, " ");
+        const tokens = q.split(" ").filter(Boolean);
+        filteredChats = filteredChats.filter((c) => {
+          const searchable = [c.customer, c.lastMessage].join(" ").toLowerCase().replace(/\s+/g, " ");
+          return tokens.every((t) => searchable.includes(t));
+        });
       }
 
       return NextResponse.json({ chats: filteredChats });

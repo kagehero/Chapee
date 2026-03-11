@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import {
   MessageSquare,
@@ -10,7 +11,6 @@ import {
   Zap,
   Users,
   LogOut,
-  ShoppingBag,
   Menu,
   X,
   Bell,
@@ -18,6 +18,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+
+// Project assets from /public
+const APP_ICON = "/icon.png";
+const APP_LOGO = "/logo.png";
 
 const navItems = [
   { icon: LayoutDashboard, label: "ダッシュボード", path: "/dashboard" },
@@ -49,10 +53,10 @@ function SidebarContent({
       <div className={cn("flex items-center gap-3 px-5 py-6", collapsed ? "justify-center px-2" : "")}>
         <button
           onClick={onCollapsedToggle}
-          className="flex-shrink-0 w-10 h-10 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center shadow-lg border border-white/10 hover:bg-white/30 transition-colors cursor-pointer"
+          className="flex-shrink-0 w-10 h-10 bg-emerald-500/90 rounded-2xl flex items-center justify-center shadow-md border border-white/20 hover:bg-emerald-500 transition-colors cursor-pointer overflow-hidden"
           aria-label={collapsed ? "サイドバーを開く" : "サイドバーを閉じる"}
         >
-          <ShoppingBag size={20} className="text-white" />
+          <Image src={APP_ICON} alt="Chapee" width={24} height={24} className="object-contain" />
         </button>
         {!collapsed && (
           <div className="animate-fade-in min-w-0">
@@ -174,11 +178,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {/* Redesigned Header */}
         <header className="bg-white/80 backdrop-blur-md border-b border-gray-200/50 px-4 sm:px-8 py-4 flex items-center justify-between shadow-sm gap-3 m-2 mb-0 ml-2 mr-0 md:mr-2 rounded-t-2xl md:rounded-2xl">
           <div className="flex items-center gap-3 min-w-0">
-            <div>
-              <h1 className="text-gray-900 font-bold text-base sm:text-lg truncate">
-                {navItems.find(n => (pathname ?? "").startsWith(n.path))?.label ?? "ダッシュボード"}
-              </h1>
-              <p className="text-gray-500 text-xs hidden sm:block">Shopee Chat Management System</p>
+            <Image
+              src={APP_ICON}
+              alt="Chapee"
+              width={32}
+              height={32}
+              className="flex-shrink-0 object-contain"
+            />
+            <div className="flex flex-col min-w-0">
+              <span className="text-emerald-700 font-bold text-base sm:text-lg leading-tight">
+                Chapee
+              </span>
+              <span className="text-emerald-600/80 text-xs sm:text-sm leading-tight">
+                Shopee Chat Manager
+              </span>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">

@@ -56,6 +56,34 @@ const statusConfig = {
   closed: { label: "完了", color: "text-gray-600 bg-gray-50 border-gray-200", icon: XCircle },
 };
 
+/** 検索用に文字列を正規化（トリム・小文字・連続スペースを1つに） */
+function normalizeForSearch(s: string): string {
+  return (s ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+/** 検索クエリがチャットにヒットするか（スペース違い・部分一致・複数キーワード対応） */
+function matchSearchQuery(
+  query: string,
+  chat: { customer?: string; product?: string; lastMessage?: string; [key: string]: unknown }
+): boolean {
+  const q = normalizeForSearch(query);
+  if (!q) return true;
+  const tokens = q.split(" ").filter(Boolean);
+  const searchable = normalizeForSearch(
+    [
+      chat.customer ?? "",
+      chat.product ?? "",
+      chat.lastMessage ?? "",
+      (chat as { itemId?: string }).itemId ?? "",
+    ].join(" ")
+  );
+  const searchableNoSpaces = searchable.replace(/\s/g, "");
+  return tokens.every((token) => searchableNoSpaces.includes(normalizeForSearch(token).replace(/\s/g, "")));
+}
+
 export default function ChatsPage() {
   const router = useRouter();
   const [selectedCountry, setSelectedCountry] = useState("全て");
@@ -70,8 +98,7 @@ export default function ChatsPage() {
     const matchCountry = selectedCountry === "全て" || c.country === selectedCountry;
     const matchType = selectedType === "all" || c.type === selectedType;
     const matchStatus = selectedStatus === "all" || c.status === selectedStatus;
-    const matchSearch = c.customer.toLowerCase().includes(search.toLowerCase()) ||
-      c.product.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = matchSearchQuery(search, c);
     return matchCountry && matchType && matchStatus && matchSearch;
   });
 
@@ -126,7 +153,7 @@ export default function ChatsPage() {
         <div className="relative">
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <Input
-            placeholder="顧客名・商品名・メッセージで検索"
+            placeholder="顧客名・商品名・メッセージ・アイテムIDで検索（スペース区切りで複数キーワード可）"
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="pl-10 rounded-xl border-gray-200"

@@ -5,6 +5,9 @@ import { Providers } from "./providers";
 export const metadata: Metadata = {
   title: "Shopee Chat Manager",
   description: "Multi-country chat management dashboard for Shopee-style stores",
+  icons: {
+    icon: "/icon.png",
+  },
 };
 
 export const viewport: Viewport = {
