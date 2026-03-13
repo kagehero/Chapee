@@ -2,13 +2,18 @@
 
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { Store, CheckCircle2, RefreshCw, Loader2 } from "lucide-react";
+import { Store, CheckCircle2, RefreshCw, Loader2, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import {
+  getNotificationSoundsEnabled,
+  setNotificationSoundsEnabled,
+} from "@/lib/notification-sound-settings";
 
 type ShopeeConnection = {
   shop_id: number;
@@ -37,6 +42,17 @@ export default function SettingsPage() {
   const [shopId, setShopId] = useState("");
   const [country, setCountry] = useState("SG");
   const [connections, setConnections] = useState<ShopeeConnection[]>([]);
+  const [notificationSoundsOn, setNotificationSoundsOn] = useState(true);
+
+  useEffect(() => {
+    setNotificationSoundsOn(getNotificationSoundsEnabled());
+  }, []);
+
+  const handleNotificationSoundsChange = (checked: boolean) => {
+    setNotificationSoundsEnabled(checked);
+    setNotificationSoundsOn(checked);
+    toast.success(checked ? "通知音をオンにしました" : "通知音をオフにしました");
+  };
 
   useEffect(() => {
     // Show success/error messages from OAuth redirect
@@ -120,6 +136,31 @@ export default function SettingsPage() {
         <p className="text-muted-foreground text-sm mt-0.5">
           Shopeeアカウント接続とシステム設定
         </p>
+      </div>
+
+      {/* Notification sounds */}
+      <div className="bg-card rounded-xl border border-border shadow-card p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+            <Bell size={14} className="text-primary" />
+          </div>
+          <div>
+            <p className="font-semibold text-foreground text-sm">通知音</p>
+            <p className="text-muted-foreground text-xs">
+              新着メッセージ・売上などの通知音のON/OFF
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <Label htmlFor="notification-sounds" className="text-sm cursor-pointer">
+            通知音を鳴らす
+          </Label>
+          <Switch
+            id="notification-sounds"
+            checked={notificationSoundsOn}
+            onCheckedChange={handleNotificationSoundsChange}
+          />
+        </div>
       </div>
 
       {/* Shopee Connection */}
