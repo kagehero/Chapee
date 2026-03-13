@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import { getNotificationSoundsEnabled } from "@/lib/notification-sound-settings";
 
 /**
  * Notification sounds for:
  * - New incoming message (ピロリン)
  * - Order related events (シャーキーン)
  *
+ * Respects user preference from Settings (notification sound ON/OFF).
  * Currently works with mock data / polling.
  * Later, Shopee webhook or realtime events can call the same handlers.
  */
@@ -22,6 +24,7 @@ export function useNotificationSounds() {
   }, []);
 
   const playMessageSound = useCallback(() => {
+    if (!getNotificationSoundsEnabled()) return;
     const audio = messageAudioRef.current;
     if (!audio) return;
     try {
@@ -33,6 +36,7 @@ export function useNotificationSounds() {
   }, []);
 
   const playOrderSound = useCallback(() => {
+    if (!getNotificationSoundsEnabled()) return;
     const audio = orderAudioRef.current;
     if (!audio) return;
     try {
