@@ -3,6 +3,9 @@ import { sendMessage } from "@/lib/shopee-api";
 import { getValidToken } from "@/lib/shopee-token";
 import { getCollection } from "@/lib/mongodb";
 
+// Feature flag: align with other chat APIs
+const USE_REAL_API = false;
+
 /**
  * POST /api/chats/[id]/send - Send message to customer via Shopee
  */
@@ -20,6 +23,15 @@ export async function POST(
         { error: "メッセージが空です" },
         { status: 400 }
       );
+    }
+
+    // Mock mode: don't call Shopee or DB, just pretend success
+    if (!USE_REAL_API) {
+      console.log(`[Messages API] Mock send for conversation ${conversationId}:`, message);
+      return NextResponse.json({
+        success: true,
+        message: "メッセージ（モック）を送信しました",
+      });
     }
 
     // Get conversation to find shop_id

@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useNotificationSounds } from "@/lib/useNotificationSounds";
 
 type AttachedFile = {
   id: string;
@@ -73,6 +74,9 @@ export default function ChatDetailPage() {
   const [infoOpen, setInfoOpen] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { playMessageSound, playOrderSound } = useNotificationSounds();
+  const isFirstMessagesLoadRef = useRef(true);
+  const lastMessageCountRef = useRef(0);
 
   // Load messages from API
   useEffect(() => {
@@ -81,6 +85,34 @@ export default function ChatDetailPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Play notification sound when new customer messages arrive (mock or real API)
+  useEffect(() => {
+    if (!messages.length) {
+      lastMessageCountRef.current = 0;
+      return;
+    }
+
+    // Skip sound on very first load
+    if (isFirstMessagesLoadRef.current) {
+      isFirstMessagesLoadRef.current = false;
+      lastMessageCountRef.current = messages.length;
+      return;
+    }
+
+    if (messages.length <= lastMessageCountRef.current) return;
+
+    const newMessages = messages.slice(lastMessageCountRef.current);
+    const hasIncomingCustomerMessage = newMessages.some(
+      (m) => m.sender === "customer"
+    );
+
+    if (hasIncomingCustomerMessage) {
+      playMessageSound();
+    }
+
+    lastMessageCountRef.current = messages.length;
+  }, [messages, playMessageSound]);
 
   const loadMessages = async () => {
     try {
@@ -292,9 +324,26 @@ export default function ChatDetailPage() {
               {conversation?.customer_name || "読み込み中..."} とのチャット
             </p>
           </div>
-          <span className="text-primary-foreground/80 text-xs bg-primary-foreground/20 px-2 py-0.5 rounded-full shrink-0">
-            {conversation?.country || "..."}
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Notification sound test buttons (dev only) */}
+            <button
+              type="button"
+              onClick={playMessageSound}
+              className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-full text-[11px] bg-primary-foreground/15 text-primary-foreground hover:bg-primary-foreground/25 transition-colors"
+            >
+              メッセージ音テスト
+            </button>
+            <button
+              type="button"
+              onClick={playOrderSound}
+              className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-full text-[11px] bg-primary-foreground/15 text-primary-foreground hover:bg-primary-foreground/25 transition-colors"
+            >
+              売上音テスト
+            </button>
+            <span className="text-primary-foreground/80 text-xs bg-primary-foreground/20 px-2 py-0.5 rounded-full">
+              {conversation?.country || "..."}
+            </span>
+          </div>
         </div>
 
         {/* Messages */}
