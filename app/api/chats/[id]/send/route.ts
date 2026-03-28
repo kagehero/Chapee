@@ -3,9 +3,6 @@ import { sendMessage } from "@/lib/shopee-api";
 import { getValidToken } from "@/lib/shopee-token";
 import { getCollection } from "@/lib/mongodb";
 
-// Feature flag: align with other chat APIs
-const USE_REAL_API = false;
-
 /**
  * POST /api/chats/[id]/send - Send message to customer via Shopee
  */
@@ -25,15 +22,6 @@ export async function POST(
       );
     }
 
-    // Mock mode: don't call Shopee or DB, just pretend success
-    if (!USE_REAL_API) {
-      console.log(`[Messages API] Mock send for conversation ${conversationId}:`, message);
-      return NextResponse.json({
-        success: true,
-        message: "メッセージ（モック）を送信しました",
-      });
-    }
-
     // Get conversation to find shop_id
     const col = await getCollection<{
       conversation_id: string;
@@ -43,7 +31,7 @@ export async function POST(
     }>("shopee_conversations");
 
     const conversation = await col.findOne({
-      conversation_id: conversationId,
+      conversation_id: String(conversationId),
     });
 
     if (!conversation) {
@@ -66,7 +54,7 @@ export async function POST(
 
     // Update conversation last_message_time
     await col.updateOne(
-      { conversation_id: conversationId },
+      { conversation_id: String(conversationId) },
       {
         $set: {
           last_message: message,

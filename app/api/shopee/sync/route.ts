@@ -2,18 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getConversations } from "@/lib/shopee-api";
 import { getValidToken, getConnectedShops } from "@/lib/shopee-token";
 import { getCollection } from "@/lib/mongodb";
-
-// Feature flag: Set to true to use Shopee API, false to use mock data
-const USE_REAL_API = false;
-
-type ShopeeMessage = {
-  message_id: string;
-  message: string;
-  timestamp: number;
-  from_id: number;
-  to_id: number;
-  message_type: number;
-};
+import {
+  inferChatTypeFromShopee,
+  previewFromConversationListItem,
+  shopeeNanoTimestampToDate,
+} from "@/lib/shopee-conversation-utils";
 
 type ShopeeConversation = {
   conversation_id: string;
@@ -24,6 +17,8 @@ type ShopeeConversation = {
   pinned: boolean;
   last_message_timestamp: number;
   last_message_type: string;
+  latest_message_type?: string;
+  latest_message_content?: { text?: string } | null;
   max_general_option_list?: unknown[];
 };
 
@@ -35,26 +30,7 @@ type ShopeeConversation = {
 export async function GET(request: NextRequest) {
   try {
     console.log("[Sync] Starting conversation sync...");
-    
-    // Use mock data if API is not available
-    if (!USE_REAL_API) {
-      console.log("[Sync] Using mock data - skipping Shopee API call");
-      return NextResponse.json({
-        success: true,
-        message: "Mock mode: Using local mock data. No sync needed.",
-        results: [
-          {
-            shop_id: 1689220556,
-            country: "SG",
-            synced: 10,
-            total: 10,
-            note: "Using mock data"
-          }
-        ],
-      });
-    }
 
-    // Real API implementation (for future use)
     const { searchParams } = new URL(request.url);
     const shopIdParam = searchParams.get("shop_id");
 
@@ -99,19 +75,6 @@ export async function GET(request: NextRequest) {
         const accessToken = await getValidToken(shop.shop_id);
         console.log(`[Sync] Got access token for shop ${shop.shop_id}`);
 
-        // Fetch conversations from Shopee
-        const response = await getConversations(accessToken, shop.shop_id, {
-          page_size: 50,
-        });
-
-        console.log(`[Sync] API Response:`, JSON.stringify(response, null, 2));
-
-        const conversations: ShopeeConversation[] =
-          response.response?.conversation_list || [];
-
-        console.log(`[Sync] Found ${conversations.length} conversations for shop ${shop.shop_id}`);
-
-        // Store in database
         const col = await getCollection<{
           conversation_id: string;
           shop_id: number;
@@ -120,6 +83,8 @@ export async function GET(request: NextRequest) {
           customer_name: string;
           last_message: string;
           last_message_time: Date;
+          last_message_type?: string;
+          chat_type?: "buyer" | "notification" | "affiliate";
           unread_count: number;
           pinned: boolean;
           status: "active" | "resolved" | "archived";
@@ -128,12 +93,58 @@ export async function GET(request: NextRequest) {
           updated_at: Date;
         }>("shopee_conversations");
 
+        const allConversations: ShopeeConversation[] = [];
+        let nextCursor: string | Record<string, unknown> | undefined;
+        let page = 0;
+        const maxPages = 40;
+
+        do {
+          const response = await getConversations(accessToken, shop.shop_id, {
+            page_size: 25,
+            direction: nextCursor ? "older" : "latest",
+            next_cursor: nextCursor,
+          });
+
+          const pageList: ShopeeConversation[] =
+            response.response?.conversations ??
+            response.response?.conversation_list ??
+            [];
+
+          allConversations.push(...pageList);
+
+          const pageResult = response.response?.page_result as
+            | {
+                more?: boolean;
+                next_cursor?: string | Record<string, unknown>;
+              }
+            | undefined;
+
+          nextCursor =
+            pageResult?.more && pageResult?.next_cursor
+              ? pageResult.next_cursor
+              : undefined;
+          page++;
+        } while (nextCursor && page < maxPages);
+
+        console.log(
+          `[Sync] Found ${allConversations.length} conversations for shop ${shop.shop_id} (${page} page(s))`
+        );
+
         let synced = 0;
 
-        for (const conv of conversations) {
+        for (const conv of allConversations) {
+          const lastAt = shopeeNanoTimestampToDate(conv.last_message_timestamp);
+          const preview = previewFromConversationListItem(conv);
+          const msgType =
+            conv.latest_message_type ?? conv.last_message_type ?? "";
+          const chatType = inferChatTypeFromShopee({
+            latest_message_type: msgType,
+            to_name: conv.to_name,
+          });
+
           await col.updateOne(
             {
-              conversation_id: conv.conversation_id,
+              conversation_id: String(conv.conversation_id),
               shop_id: shop.shop_id,
             },
             {
@@ -141,15 +152,17 @@ export async function GET(request: NextRequest) {
                 country: shop.country,
                 customer_id: conv.to_id,
                 customer_name: conv.to_name,
-                last_message: `[${conv.last_message_type}]`, // Message type only for now
-                last_message_time: new Date(conv.last_message_timestamp * 1000),
+                last_message: preview,
+                last_message_time: lastAt,
+                last_message_type: msgType,
+                chat_type: chatType,
                 unread_count: conv.unread_count,
                 pinned: conv.pinned,
                 status: conv.unread_count > 0 ? "active" : "resolved",
                 updated_at: new Date(),
               },
               $setOnInsert: {
-                conversation_id: conv.conversation_id,
+                conversation_id: String(conv.conversation_id),
                 shop_id: shop.shop_id,
                 created_at: new Date(),
               },
@@ -165,7 +178,7 @@ export async function GET(request: NextRequest) {
           shop_id: shop.shop_id,
           country: shop.country,
           synced,
-          total: conversations.length,
+          total: allConversations.length,
         });
       } catch (error) {
         console.error(`[Sync] Failed to sync shop ${shop.shop_id}:`, error);

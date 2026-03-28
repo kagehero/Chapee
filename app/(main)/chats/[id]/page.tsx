@@ -23,21 +23,13 @@ type AttachedFile = {
 };
 
 type Message = {
-  id: number;
+  id: string | number;
   sender: "customer" | "staff";
   content: string;
   time: string;
   translated: boolean;
   attachments?: AttachedFile[];
 };
-
-const mockMessages: Message[] = [
-  { id: 1, sender: "customer", content: "こんにちは！注文した商品はいつ届きますか？", time: "10:00", translated: false },
-  { id: 2, sender: "staff", content: "ご注文ありがとうございます。現在、発送準備中です。", time: "10:15", translated: false },
-  { id: 3, sender: "customer", content: "追跡番号を教えていただけますか？", time: "11:30", translated: false },
-  { id: 4, sender: "customer", content: "Please provide the tracking number as soon as possible.", time: "13:45", translated: false },
-  { id: 5, sender: "customer", content: "I've been waiting for 3 days already.", time: "14:20", translated: false },
-];
 
 const templates = [
   { category: "発送前", items: ["発送準備中のご案内", "出荷完了のお知らせ", "追跡番号のご案内"] },
@@ -69,8 +61,8 @@ export default function ChatDetailPage() {
   const [sending, setSending] = useState(false);
   const [inputMessage, setInputMessage] = useState("");
   const [showTemplates, setShowTemplates] = useState(false);
-  const [translating, setTranslating] = useState<number | null>(null);
-  const [translatedMessages, setTranslatedMessages] = useState<Record<number, string>>({});
+  const [translating, setTranslating] = useState<string | number | null>(null);
+  const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
   const [infoOpen, setInfoOpen] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -86,7 +78,7 @@ export default function ChatDetailPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  // Play notification sound when new customer messages arrive (mock or real API)
+  // Play notification sound when new customer messages arrive (API-loaded thread)
   useEffect(() => {
     if (!messages.length) {
       lastMessageCountRef.current = 0;
@@ -117,7 +109,9 @@ export default function ChatDetailPage() {
   const loadMessages = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/chats/${id}/messages`);
+      const res = await fetch(
+        `/api/chats/${encodeURIComponent(id)}/messages`
+      );
       if (!res.ok) throw new Error("Failed to load messages");
       const data = await res.json();
       setConversation(data.conversation);
@@ -130,12 +124,13 @@ export default function ChatDetailPage() {
     }
   };
 
-  const handleTranslate = (msgId: number, content: string) => {
+  const handleTranslate = (msgId: string | number, content: string) => {
+    const key = String(msgId);
     setTranslating(msgId);
     setTimeout(() => {
-      setTranslatedMessages(prev => ({
+      setTranslatedMessages((prev) => ({
         ...prev,
-        [msgId]: `[翻訳] ${content} → 「${content.length > 20 ? '長い英文のメッセージです...' : 'メッセージの翻訳結果'}」`,
+        [key]: `[翻訳] ${content} → 「${content.length > 20 ? '長い英文のメッセージです...' : 'メッセージの翻訳結果'}」`,
       }));
       setTranslating(null);
     }, 1000);
@@ -147,7 +142,7 @@ export default function ChatDetailPage() {
     
     setSending(true);
     try {
-      const res = await fetch(`/api/chats/${id}/send`, {
+      const res = await fetch(`/api/chats/${encodeURIComponent(id)}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: inputMessage }),
@@ -168,7 +163,7 @@ export default function ChatDetailPage() {
         attachments: attachedFiles.length > 0 ? [...attachedFiles] : undefined,
       };
       
-      setMessages(prev => [...prev, newMessage]);
+      setMessages((prev) => [...prev, { ...newMessage, id: String(newMessage.id) }]);
       setInputMessage("");
       setAttachedFiles([]);
       toast.success("メッセージを送信しました");
@@ -436,9 +431,9 @@ export default function ChatDetailPage() {
                   </div>
                 )}
 
-                {translatedMessages[msg.id] && (
+                {translatedMessages[String(msg.id)] && (
                   <div className="bg-primary-subtle border border-primary/20 rounded-lg px-3 py-2 text-xs text-primary">
-                    {translatedMessages[msg.id]}
+                    {translatedMessages[String(msg.id)]}
                   </div>
                 )}
 

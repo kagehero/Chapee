@@ -1,33 +1,36 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
-  MessageSquare, Search, Filter, Users as UsersIcon,
-  ChevronRight, User, ShoppingCart, Bell, TrendingUp, Calendar,
-  Clock, CheckCircle, XCircle, AlertCircle
+  MessageSquare, Search, Users as UsersIcon,
+  ChevronRight, User, ShoppingCart, Bell, TrendingUp,
+  CheckCircle, XCircle, AlertCircle, Loader2, RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 const COUNTRIES = ["全て", "SG", "PH", "MY", "TW", "TH", "VN", "BR"];
 
 type ChatType = "buyer" | "notification" | "affiliate";
 type ChatStatus = "open" | "replied" | "closed";
 
-const mockChats = [
-  { id: 1, country: "SG", customer: "Lee Wei Ming", product: "USB-C Hub 7-in-1", lastMessage: "商品はいつ届きますか？", time: "14:32", date: "2024-03-15", elapsed: 11.5, staff: "田中", status: "open" as ChatStatus, unread: 2, type: "buyer" as ChatType },
-  { id: 2, country: "PH", customer: "Shopee通知", product: "返品リクエスト", lastMessage: "返品リクエストが届きました", time: "13:15", date: "2024-03-15", elapsed: 9.2, staff: "佐藤", status: "open" as ChatStatus, unread: 1, type: "notification" as ChatType },
-  { id: 3, country: "MY", customer: "Ahmad Farid", product: "Gaming Mouse X1", lastMessage: "返品したいです", time: "12:45", date: "2024-03-15", elapsed: 12.1, staff: "未割当", status: "open" as ChatStatus, unread: 3, type: "buyer" as ChatType },
-  { id: 4, country: "SG", customer: "Shopee通知", product: "キャンセルリクエスト", lastMessage: "キャンセルリクエストが届きました", time: "11:20", date: "2024-03-15", elapsed: 8.5, staff: "山田", status: "replied" as ChatStatus, unread: 0, type: "notification" as ChatType },
-  { id: 5, country: "TH", customer: "Somchai K.", product: "Mechanical Keyboard", lastMessage: "色違いに変更できますか？", time: "10:55", date: "2024-03-15", elapsed: 13.2, staff: "未割当", status: "open" as ChatStatus, unread: 1, type: "buyer" as ChatType },
-  { id: 6, country: "VN", customer: "アフィリエイター", product: "商品プロモーション", lastMessage: "新商品のアフィリエイトについて", time: "16:10", date: "2024-03-14", elapsed: 6.3, staff: "鈴木", status: "replied" as ChatStatus, unread: 0, type: "affiliate" as ChatType },
-  { id: 7, country: "VN", customer: "Nguyen Van A", product: "Phone Case Bundle", lastMessage: "ありがとうございました", time: "15:45", date: "2024-03-14", elapsed: 7.8, staff: "田中", status: "closed" as ChatStatus, unread: 0, type: "buyer" as ChatType },
-  { id: 8, country: "MY", customer: "Shopee通知", product: "配達完了通知", lastMessage: "商品が配達されました", time: "09:30", date: "2024-03-14", elapsed: 10.3, staff: "佐藤", status: "closed" as ChatStatus, unread: 0, type: "notification" as ChatType },
-  { id: 9, country: "SG", customer: "Jessica Wong", product: "Bluetooth Speaker", lastMessage: "音質はどうですか？", time: "08:15", date: "2024-03-14", elapsed: 5.2, staff: "山田", status: "replied" as ChatStatus, unread: 0, type: "buyer" as ChatType },
-  { id: 10, country: "PH", customer: "Carlos Santos", product: "Gaming Headset", lastMessage: "在庫はありますか？", time: "07:30", date: "2024-03-14", elapsed: 4.1, staff: "田中", status: "replied" as ChatStatus, unread: 0, type: "buyer" as ChatType },
-];
+type ChatRow = {
+  id: string;
+  country: string;
+  customer: string;
+  product: string;
+  lastMessage: string;
+  time: string;
+  date: string;
+  elapsed: number;
+  staff: string;
+  unread: number;
+  type: ChatType;
+  uiStatus: ChatStatus;
+};
 
 const chatTypeConfig = {
   buyer: { 
@@ -86,18 +89,84 @@ function matchSearchQuery(
 
 export default function ChatsPage() {
   const router = useRouter();
+  const [chats, setChats] = useState<ChatRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState("全て");
   const [selectedType, setSelectedType] = useState<ChatType | "all">("all");
   const [selectedStatus, setSelectedStatus] = useState<ChatStatus | "all">("all");
   const [search, setSearch] = useState("");
-  const [selectedChats, setSelectedChats] = useState<number[]>([]);
+  const [selectedChats, setSelectedChats] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  const filtered = mockChats.filter(c => {
+  const loadChats = useCallback(async () => {
+    const res = await fetch("/api/chats");
+    if (!res.ok) throw new Error("Failed to load chats");
+    const data = await res.json();
+    const rows: ChatRow[] = (data.chats || []).map(
+      (c: {
+        id: string;
+        country: string;
+        customer: string;
+        lastMessage: string;
+        time: string;
+        elapsed: number;
+        staff?: string;
+        unread: number;
+        type?: ChatType;
+        uiStatus?: ChatStatus;
+        product?: string;
+        date?: string;
+      }) => ({
+        id: String(c.id),
+        country: c.country,
+        customer: c.customer,
+        product: c.product ?? "—",
+        lastMessage: c.lastMessage,
+        time: c.time,
+        date: c.date ?? "",
+        elapsed: c.elapsed,
+        staff: c.staff ?? "未割当",
+        unread: c.unread,
+        type: (c.type as ChatType) || "buyer",
+        uiStatus: (c.uiStatus as ChatStatus) || "replied",
+      })
+    );
+    setChats(rows);
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoading(true);
+        await loadChats();
+      } catch (e) {
+        console.error(e);
+        toast.error("チャット一覧の読み込みに失敗しました");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [loadChats]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetch("/api/shopee/sync", { method: "POST" });
+      await loadChats();
+      toast.success("同期しました");
+    } catch (e) {
+      toast.error("同期に失敗しました");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const filtered = chats.filter((c) => {
     const matchCountry = selectedCountry === "全て" || c.country === selectedCountry;
     const matchType = selectedType === "all" || c.type === selectedType;
-    const matchStatus = selectedStatus === "all" || c.status === selectedStatus;
+    const matchStatus = selectedStatus === "all" || c.uiStatus === selectedStatus;
     const matchSearch = matchSearchQuery(search, c);
     return matchCountry && matchType && matchStatus && matchSearch;
   });
@@ -113,9 +182,9 @@ export default function ChatsPage() {
     }
   };
 
-  const toggleSelect = (id: number) => {
-    setSelectedChats(prev =>
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+  const toggleSelect = (id: string) => {
+    setSelectedChats((prev) =>
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
     );
   };
 
@@ -124,27 +193,45 @@ export default function ChatsPage() {
       alert("チャットを選択してください");
       return;
     }
-    alert(`${selectedChats.length}件のチャットに担当者を一括割り当て（実装予定）`);
+    toast.info(`${selectedChats.length}件の一括割当は、担当者API連携後に有効にできます`);
   };
 
   return (
     <div className="space-y-5 animate-fade-in max-w-7xl">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h2 className="text-gray-900 font-bold text-lg">チャット管理</h2>
-          <p className="text-gray-500 text-sm mt-0.5">全チャットの詳細管理と一括操作</p>
+          <p className="text-gray-500 text-sm mt-0.5">
+            Shopee同期済みの会話一覧（API / MongoDB）
+          </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleBulkAssign}
-          disabled={selectedChats.length === 0}
-          className="gap-2 rounded-xl"
-        >
-          <UsersIcon size={16} />
-          一括担当者割当
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={refreshing || loading}
+            className="gap-2 rounded-xl"
+          >
+            {refreshing ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <RefreshCw size={16} />
+            )}
+            Shopeeと同期
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleBulkAssign}
+            disabled={selectedChats.length === 0}
+            className="gap-2 rounded-xl"
+          >
+            <UsersIcon size={16} />
+            一括担当者割当
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -291,15 +378,23 @@ export default function ChatsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {paginatedChats.map(chat => {
+              {loading ? (
+                <tr>
+                  <td colSpan={11} className="px-4 py-16 text-center text-gray-500">
+                    <Loader2 className="animate-spin inline-block mr-2" size={20} />
+                    読み込み中...
+                  </td>
+                </tr>
+              ) : (
+              paginatedChats.map(chat => {
                 const typeConfig = chatTypeConfig[chat.type];
                 const TypeIcon = typeConfig.icon;
-                const statusInfo = statusConfig[chat.status];
+                const statusInfo = statusConfig[chat.uiStatus];
                 const StatusIcon = statusInfo.icon;
                 
                 // 経過時間に応じた背景色を決定（未対応のみ）
                 let rowBgColor = "";
-                if (chat.status === "open" && chat.unread > 0) {
+                if (chat.uiStatus === "open" && chat.unread > 0) {
                   if (chat.elapsed >= 11) {
                     rowBgColor = "bg-red-50/50"; // 11時間以上: 赤
                   } else if (chat.elapsed >= 8) {
@@ -373,7 +468,8 @@ export default function ChatsPage() {
                     </td>
                   </tr>
                 );
-              })}
+              })
+              )}
             </tbody>
           </table>
         </div>
