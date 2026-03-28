@@ -9,7 +9,7 @@ import { getNotificationSoundsEnabled } from "@/lib/notification-sound-settings"
  * - Order related events (シャーキーン)
  *
  * Respects user preference from Settings (notification sound ON/OFF).
- * Currently works with mock data / polling.
+ * Plays when new customer messages arrive (e.g. after polling / real-time refresh).
  * Later, Shopee webhook or realtime events can call the same handlers.
  */
 export function useNotificationSounds() {

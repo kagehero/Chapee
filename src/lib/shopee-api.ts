@@ -125,18 +125,30 @@ export async function getShopInfo(accessToken: string, shopId: number) {
 
 /**
  * Get seller chat conversations list
+ *
+ * Shopee requires `direction` (latest | older) and `type` (pinned | all | unread).
+ * See Shopee OpenAPI support: both are mandatory on get_conversation_list.
  */
 export async function getConversations(
   accessToken: string,
   shopId: number,
   params?: {
-    next_cursor?: string;
+    /** String or cursor object from previous `page_result.next_cursor` */
+    next_cursor?: string | Record<string, unknown>;
     page_size?: number;
+    /** Pagination: latest = newest first page; older = next page when using next_cursor */
+    direction?: "latest" | "older";
+    /** Conversation filter: pinned | all | unread */
+    listType?: "pinned" | "all" | "unread";
   }
 ) {
   const path = "/api/v2/sellerchat/get_conversation_list";
   const timestamp = Math.floor(Date.now() / 1000);
   const sign = generateSignature(path, timestamp, accessToken, shopId);
+
+  const direction: "latest" | "older" =
+    params?.direction ?? (params?.next_cursor ? "older" : "latest");
+  const listType: "pinned" | "all" | "unread" = params?.listType ?? "all";
 
   let url =
     `${BASE_URL}${path}?` +
@@ -144,11 +156,21 @@ export async function getConversations(
     `timestamp=${timestamp}&` +
     `access_token=${accessToken}&` +
     `shop_id=${shopId}&` +
-    `sign=${sign}`;
+    `sign=${sign}` +
+    `&direction=${encodeURIComponent(direction)}` +
+    `&type=${encodeURIComponent(listType)}`;
 
   if (params) {
-    if (params.next_cursor) url += `&next_cursor=${params.next_cursor}`;
-    if (params.page_size) url += `&page_size=${params.page_size}`;
+    if (params.next_cursor) {
+      const cursor =
+        typeof params.next_cursor === "string"
+          ? params.next_cursor
+          : JSON.stringify(params.next_cursor);
+      url += `&next_cursor=${encodeURIComponent(cursor)}`;
+    }
+    if (params.page_size) {
+      url += `&page_size=${params.page_size}`;
+    }
   }
 
   console.log(`[Shopee API] Fetching conversations`);
@@ -199,7 +221,7 @@ export async function getConversationMessages(
     `timestamp=${timestamp}&` +
     `access_token=${accessToken}&` +
     `shop_id=${shopId}&` +
-    `conversation_id=${conversationId}&` +
+    `conversation_id=${encodeURIComponent(String(conversationId))}&` +
     `sign=${sign}`;
 
   if (params?.page_size) {

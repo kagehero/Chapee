@@ -1,15 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  MessageSquare, Clock, AlertTriangle, AlertCircle,
-  User, ChevronRight, Search, RefreshCw, Loader2, Settings,
-  ShoppingCart, Bell, TrendingUp, Users
+  MessageSquare, Clock, AlertCircle,
+  ChevronRight, RefreshCw, Loader2, Settings,
+  ShoppingCart, Bell, TrendingUp, CheckCircle2, XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
@@ -18,23 +17,6 @@ const COUNTRIES = ["全て", "SG", "PH", "MY", "TW", "TH", "VN", "BR"];
 // チャットタイプ定義
 type ChatType = "buyer" | "notification" | "affiliate";
 
-const mockChats = [
-  { id: 1, country: "SG", customer: "Lee Wei Ming", product: "USB-C Hub 7-in-1", lastMessage: "商品はいつ届きますか？", time: "14:32", elapsed: 11.5, staff: "田中", status: "urgent", unread: 2, type: "buyer" as ChatType },
-  { id: 2, country: "PH", customer: "Shopee通知", product: "返品リクエスト", lastMessage: "返品リクエストが届きました", time: "13:15", elapsed: 9.2, staff: "佐藤", status: "warning", unread: 1, type: "notification" as ChatType },
-  { id: 3, country: "MY", customer: "Ahmad Farid", product: "Gaming Mouse X1", lastMessage: "返品したいです", time: "12:45", elapsed: 12.1, staff: "未割当", status: "critical", unread: 3, type: "buyer" as ChatType },
-  { id: 4, country: "SG", customer: "Shopee通知", product: "キャンセルリクエスト", lastMessage: "キャンセルリクエストが届きました", time: "11:20", elapsed: 8.5, staff: "山田", status: "normal", unread: 1, type: "notification" as ChatType },
-  { id: 5, country: "TH", customer: "Somchai K.", product: "Mechanical Keyboard", lastMessage: "色違いに変更できますか？", time: "10:55", elapsed: 13.2, staff: "未割当", status: "critical", unread: 1, type: "buyer" as ChatType },
-  { id: 6, country: "VN", customer: "アフィリエイター", product: "商品プロモーション", lastMessage: "新商品のアフィリエイトについて", time: "16:10", elapsed: 6.3, staff: "鈴木", status: "normal", unread: 0, type: "affiliate" as ChatType },
-  { id: 7, country: "VN", customer: "Nguyen Van A", product: "Phone Case Bundle", lastMessage: "追跡番号を教えてください", time: "15:45", elapsed: 7.8, staff: "田中", status: "normal", unread: 0, type: "buyer" as ChatType },
-  { id: 8, country: "MY", customer: "Shopee通知", product: "配達完了通知", lastMessage: "商品が配達されました", time: "09:30", elapsed: 10.3, staff: "佐藤", status: "warning", unread: 0, type: "notification" as ChatType },
-];
-
-const statusColors = {
-  normal: "text-success bg-success/10 border-success/20",
-  warning: "text-warning bg-warning/10 border-warning/20",
-  urgent: "text-orange-500 bg-orange-50 border-orange-200",
-  critical: "text-destructive bg-destructive/10 border-destructive/20",
-};
 
 const chatTypeConfig = {
   buyer: { 
@@ -60,13 +42,6 @@ const chatTypeConfig = {
   },
 };
 
-const statusLabel = (elapsed: number) => {
-  if (elapsed >= 12) return { label: "12時間超", color: "critical" };
-  if (elapsed >= 11) return { label: "11時間超", color: "urgent" };
-  if (elapsed >= 10) return { label: "10時間超", color: "warning" };
-  return { label: `${elapsed.toFixed(1)}h`, color: "normal" };
-};
-
 type Chat = {
   id: string;
   shop_id: number;
@@ -83,57 +58,97 @@ type Chat = {
   type?: ChatType;
 };
 
+type SyncStatus = "idle" | "syncing" | "success" | "error";
+
 export default function DashboardPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
+  /** User clicked「データ更新」 */
+  const [manualSyncing, setManualSyncing] = useState(false);
+  /** POST /api/shopee/sync running in background after first paint */
+  const [backgroundSyncing, setBackgroundSyncing] = useState(false);
   const [chats, setChats] = useState<Chat[]>([]);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
+  const [lastSynced, setLastSynced] = useState<Date | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const backgroundSyncInFlightRef = useRef(false);
 
-  // Load chats on mount
-  useEffect(() => {
-    loadChats();
+  const fetchChats = useCallback(async () => {
+    const res = await fetch("/api/chats");
+    if (!res.ok) throw new Error("Failed to load chats");
+    const data = await res.json();
+    return (data.chats || []).map((chat: Chat) => ({
+      ...chat,
+      type: chat.type || ("buyer" as ChatType),
+    }));
   }, []);
 
-  const loadChats = async () => {
-    try {
-      setLoading(true);
-      const res = await fetch("/api/chats");
-      if (!res.ok) throw new Error("Failed to load chats");
-      const data = await res.json();
-      
-      // Add type to chats (for now, default to "buyer" - can be enhanced later)
-      const chatsWithType = (data.chats || []).map((chat: Chat) => ({
-        ...chat,
-        type: chat.type || ("buyer" as ChatType)
-      }));
-      
-      setChats(chatsWithType);
-    } catch (error) {
-      console.error("Load chats error:", error);
-      toast.error("チャットの読み込みに失敗しました");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSync = async () => {
-    setSyncing(true);
+  const runBackgroundSync = useCallback(async () => {
+    if (backgroundSyncInFlightRef.current) return;
+    backgroundSyncInFlightRef.current = true;
+    setBackgroundSyncing(true);
+    setSyncStatus("syncing");
+    setSyncError(null);
     try {
       const res = await fetch("/api/shopee/sync", { method: "POST" });
       const data = await res.json();
-      
-      if (!res.ok) {
-        throw new Error(data.error || "同期に失敗しました");
-      }
-      
-      toast.success("会話を同期しました");
-      // Reload chats after sync
-      await loadChats();
-    } catch (error) {
-      console.error("Sync error:", error);
-      toast.error(error instanceof Error ? error.message : "同期に失敗しました");
+      if (!res.ok) throw new Error(data.error || "同期失敗");
+      setSyncStatus("success");
+      setLastSynced(new Date());
+      setChats(await fetchChats());
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "同期に失敗しました";
+      setSyncStatus("error");
+      setSyncError(msg);
     } finally {
-      setSyncing(false);
+      setBackgroundSyncing(false);
+      backgroundSyncInFlightRef.current = false;
+    }
+  }, [fetchChats]);
+
+  // 1) Load cached chats from MongoDB immediately. 2) Then sync from Shopee in the background
+  // (does not block the first paint).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setSyncStatus("idle");
+      setSyncError(null);
+      try {
+        const list = await fetchChats();
+        if (!cancelled) setChats(list);
+      } catch {
+        if (!cancelled) toast.error("チャットの読み込みに失敗しました");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+      if (cancelled) return;
+      void runBackgroundSync();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchChats, runBackgroundSync]);
+
+  const handleSync = async () => {
+    setManualSyncing(true);
+    setSyncStatus("syncing");
+    setSyncError(null);
+    try {
+      const res = await fetch("/api/shopee/sync", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "同期に失敗しました");
+      setSyncStatus("success");
+      setLastSynced(new Date());
+      toast.success("Shopeeから会話を同期しました");
+      setChats(await fetchChats());
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "同期に失敗しました";
+      setSyncStatus("error");
+      setSyncError(msg);
+      toast.error(msg);
+    } finally {
+      setManualSyncing(false);
     }
   };
 
@@ -155,16 +170,42 @@ export default function DashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">ダッシュボード</h1>
-          <p className="text-sm text-gray-500 mt-1">全体状況の概要を確認</p>
+          <div className="flex items-center gap-2 mt-1">
+            {(syncStatus === "syncing" || backgroundSyncing || manualSyncing) && (
+              <span className="flex items-center gap-1 text-xs text-blue-500">
+                <Loader2 size={12} className="animate-spin" />
+                {manualSyncing
+                  ? "Shopeeから同期中..."
+                  : "バックグラウンドでShopee同期中..."}
+              </span>
+            )}
+            {syncStatus === "success" && lastSynced && (
+              <span className="flex items-center gap-1 text-xs text-green-600">
+                <CheckCircle2 size={12} />
+                最終同期: {lastSynced.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
+            {syncStatus === "error" && (
+              <span className="flex items-center gap-1 text-xs text-red-500">
+                <XCircle size={12} />
+                {syncError ?? "同期エラー"}
+              </span>
+            )}
+            {syncStatus === "idle" &&
+              !backgroundSyncing &&
+              !manualSyncing && (
+              <p className="text-sm text-gray-500">全体状況の概要を確認</p>
+            )}
+          </div>
         </div>
         <Button
           variant="outline"
           size="sm"
           onClick={handleSync}
-          disabled={syncing}
+          disabled={manualSyncing || loading}
           className="h-10 gap-2 rounded-xl border-gray-200 hover:bg-gray-50"
         >
-          {syncing ? (
+          {manualSyncing ? (
             <>
               <Loader2 size={16} className="animate-spin" />
               同期中
@@ -276,17 +317,32 @@ export default function DashboardPage() {
           ) : chats.length === 0 ? (
             <div className="py-16 text-center text-gray-500 text-sm px-4">
               <div className="w-16 h-16 rounded-2xl bg-gray-100 mx-auto mb-4 flex items-center justify-center">
-                <MessageSquare size={32} className="text-gray-300" />
+                {syncStatus === "error"
+                  ? <XCircle size={32} className="text-red-400" />
+                  : <MessageSquare size={32} className="text-gray-300" />}
               </div>
               <div className="space-y-3">
-                <p className="text-gray-900 font-semibold">チャットがありません</p>
-                <p className="text-gray-500 text-xs mb-4">「データ更新」ボタンでShopeeから会話を同期してください</p>
-                <Link href="/settings">
-                  <Button variant="outline" size="sm" className="gap-2 rounded-xl border-gray-200">
-                    <Settings size={16} />
-                    設定でストアを接続
-                  </Button>
-                </Link>
+                {syncStatus === "error" ? (
+                  <>
+                    <p className="text-gray-900 font-semibold">Shopee同期エラー</p>
+                    <p className="text-gray-500 text-xs">{syncError}</p>
+                    <Button variant="outline" size="sm" onClick={handleSync} className="gap-2 rounded-xl border-gray-200">
+                      <RefreshCw size={16} />
+                      再同期
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-gray-900 font-semibold">チャットがありません</p>
+                    <p className="text-gray-500 text-xs mb-4">Shopeeストアを接続して会話を同期してください</p>
+                    <Link href="/settings">
+                      <Button variant="outline" size="sm" className="gap-2 rounded-xl border-gray-200">
+                        <Settings size={16} />
+                        設定でストアを接続
+                      </Button>
+                    </Link>
+                  </>
+                )}
               </div>
             </div>
           ) : (
