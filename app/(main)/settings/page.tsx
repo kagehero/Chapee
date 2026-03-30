@@ -1,12 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
 import { Store, CheckCircle2, RefreshCw, Loader2, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -35,12 +32,8 @@ const COUNTRIES = [
 ];
 
 export default function SettingsPage() {
-  const searchParams = useSearchParams();
-  const [loading, setLoading] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [code, setCode] = useState("");
-  const [shopId, setShopId] = useState("");
-  const [country, setCountry] = useState("SG");
   const [connections, setConnections] = useState<ShopeeConnection[]>([]);
   const [notificationSoundsOn, setNotificationSoundsOn] = useState(true);
 
@@ -54,22 +47,7 @@ export default function SettingsPage() {
     toast.success(checked ? "通知音をオンにしました" : "通知音をオフにしました");
   };
 
-  useEffect(() => {
-    // Show success/error messages from OAuth redirect
-    const connected = searchParams?.get("shopee_connected");
-    const error = searchParams?.get("shopee_error");
-
-    if (connected === "true") {
-      toast.success("Shopeeアカウントを接続しました");
-    } else if (error) {
-      toast.error(decodeURIComponent(error));
-    }
-
-    // Load existing connections
-    loadConnections();
-  }, [searchParams]);
-
-  const loadConnections = async () => {
+  const loadConnections = useCallback(async () => {
     try {
       const res = await fetch("/api/shopee/status");
       if (res.ok) {
@@ -79,35 +57,31 @@ export default function SettingsPage() {
     } catch (err) {
       console.error("Failed to load connections:", err);
     }
-  };
+  }, []);
 
-  const handleConnect = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
+  useEffect(() => {
+    void loadConnections();
+  }, [loadConnections]);
 
+  const handleShopeeOAuth = async () => {
+    setOauthLoading(true);
     try {
-      const res = await fetch("/api/shopee/connect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, shop_id: shopId, country }),
+      const res = await fetch("/api/shopee/auth-url", {
+        credentials: "include",
       });
-
-      const data = await res.json();
-
+      const data = (await res.json()) as { url?: string; error?: string };
       if (!res.ok) {
-        throw new Error(data.error || "接続に失敗しました");
+        throw new Error(data.error || "認証URLの取得に失敗しました");
       }
-
-      toast.success(`${country}ストアを接続しました`);
-      setCode("");
-      setShopId("");
-      loadConnections();
+      if (!data.url) {
+        throw new Error("認証URLが無効です");
+      }
+      window.location.href = data.url;
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "接続に失敗しました"
+        error instanceof Error ? error.message : "接続の準備に失敗しました"
       );
-    } finally {
-      setLoading(false);
+      setOauthLoading(false);
     }
   };
 
@@ -174,77 +148,34 @@ export default function SettingsPage() {
               Shopeeアカウント接続
             </p>
             <p className="text-muted-foreground text-xs">
-              各国のストアのcode と shop_id を入力
+              ボタンからShopeeにログインし、権限を許可すると連携が完了します
             </p>
           </div>
         </div>
 
-        <form onSubmit={handleConnect} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="country" className="text-xs font-medium">
-                国 / Country
-              </Label>
-              <Select value={country} onValueChange={setCountry}>
-                <SelectTrigger className="text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {COUNTRIES.map((c) => (
-                    <SelectItem key={c.code} value={c.code}>
-                      {c.code} - {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="shop_id" className="text-xs font-medium">
-                Shop ID
-              </Label>
-              <Input
-                id="shop_id"
-                type="number"
-                value={shopId}
-                onChange={(e) => setShopId(e.target.value)}
-                placeholder="12345678"
-                required
-                className="text-sm"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="code" className="text-xs font-medium">
-                Authorization Code
-              </Label>
-              <Input
-                id="code"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                placeholder="code..."
-                required
-                className="text-sm font-mono"
-              />
-            </div>
-          </div>
-
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <Button
-            type="submit"
-            disabled={loading}
-            className="gradient-primary text-primary-foreground shadow-green gap-2"
+            type="button"
+            onClick={handleShopeeOAuth}
+            disabled={oauthLoading}
+            className="gradient-primary text-primary-foreground shadow-green gap-2 w-full sm:w-auto"
           >
-            {loading ? (
+            {oauthLoading ? (
               <>
                 <Loader2 size={14} className="animate-spin" />
-                接続中...
+                準備中...
               </>
             ) : (
               <>
                 <Store size={14} />
-                アカウント接続
+                Shopeeアカウントを連携
               </>
             )}
           </Button>
-        </form>
+          <p className="text-muted-foreground text-xs sm:max-w-md">
+            Partner ID や認証コードの入力は不要です。連携後、下に接続済み店舗が表示されます。
+          </p>
+        </div>
       </div>
 
       {/* Connected Accounts */}
@@ -311,21 +242,15 @@ export default function SettingsPage() {
 
       {/* Instructions */}
       <div className="bg-muted/50 rounded-xl border border-border p-4 space-y-2">
-        <p className="text-foreground font-semibold text-sm">
-          Shopee APIの接続手順
-        </p>
+        <p className="text-foreground font-semibold text-sm">連携の流れ</p>
         <ol className="text-muted-foreground text-xs space-y-1 list-decimal list-inside">
-          <li>
-            Shopee Open Platformで Partner ID と Partner Key を取得してください
-          </li>
-          <li>
-            .env ファイルに SHOPEE_PARTNER_ID と SHOPEE_PARTNER_KEY を設定
-          </li>
-          <li>
-            各国のShopeeストア（SG/PH/MY/TW/TH/ID/VN/BR）のcode と shop_id を入力
-          </li>
-          <li>「アカウント接続」ボタンをクリックしてトークンを取得</li>
+          <li>「Shopeeアカウントを連携」をクリック</li>
+          <li>Shopeeの画面でログインし、アプリの連携を許可</li>
+          <li>自動でこの画面に戻り、接続済みとして表示されます</li>
         </ol>
+        <p className="text-muted-foreground text-xs pt-1 border-t border-border mt-2">
+          運用側では Shopee Open Platform の Partner 資格情報を環境変数に設定し、リダイレクトURLをコンソール登録内容と一致させてください。
+        </p>
       </div>
     </div>
   );
