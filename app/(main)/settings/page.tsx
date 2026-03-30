@@ -1,16 +1,44 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Store, CheckCircle2, RefreshCw, Loader2, Bell } from "lucide-react";
+import {
+  Store,
+  CheckCircle2,
+  RefreshCw,
+  Loader2,
+  Bell,
+  Languages,
+  ExternalLink,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
+import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "sonner";
 import {
   getNotificationSoundsEnabled,
   setNotificationSoundsEnabled,
 } from "@/lib/notification-sound-settings";
+
+type TranslationProvider = "deepl" | "google";
+
+type TranslationSettingsResponse = {
+  history_provider: TranslationProvider;
+  input_provider: TranslationProvider;
+  deepl_key_configured: boolean;
+  google_key_configured: boolean;
+  env_deepl_fallback: boolean;
+  env_google_fallback: boolean;
+  deepl_key_masked: string | null;
+  google_key_masked: string | null;
+  deepl_usage: {
+    character_count: number;
+    character_limit: number;
+  } | null;
+};
 
 type ShopeeConnection = {
   shop_id: number;
@@ -37,6 +65,17 @@ export default function SettingsPage() {
   const [connections, setConnections] = useState<ShopeeConnection[]>([]);
   const [notificationSoundsOn, setNotificationSoundsOn] = useState(true);
 
+  const [historyProvider, setHistoryProvider] =
+    useState<TranslationProvider>("deepl");
+  const [inputProvider, setInputProvider] =
+    useState<TranslationProvider>("deepl");
+  const [deeplKeyDraft, setDeeplKeyDraft] = useState("");
+  const [googleKeyDraft, setGoogleKeyDraft] = useState("");
+  const [translationMeta, setTranslationMeta] =
+    useState<TranslationSettingsResponse | null>(null);
+  const [translationLoading, setTranslationLoading] = useState(true);
+  const [translationSaving, setTranslationSaving] = useState(false);
+
   useEffect(() => {
     setNotificationSoundsOn(getNotificationSoundsEnabled());
   }, []);
@@ -62,6 +101,100 @@ export default function SettingsPage() {
   useEffect(() => {
     void loadConnections();
   }, [loadConnections]);
+
+  const loadTranslationSettings = useCallback(async () => {
+    setTranslationLoading(true);
+    try {
+      const res = await fetch("/api/settings/translation");
+      if (!res.ok) return;
+      const data = (await res.json()) as TranslationSettingsResponse;
+      setTranslationMeta(data);
+      setHistoryProvider(data.history_provider);
+      setInputProvider(data.input_provider);
+      setDeeplKeyDraft("");
+      setGoogleKeyDraft("");
+    } catch {
+      console.error("Failed to load translation settings");
+    } finally {
+      setTranslationLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadTranslationSettings();
+  }, [loadTranslationSettings]);
+
+  const handleSaveTranslation = async () => {
+    setTranslationSaving(true);
+    try {
+      const res = await fetch("/api/settings/translation", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          history_provider: historyProvider,
+          input_provider: inputProvider,
+          deepl_api_key: deeplKeyDraft.trim(),
+          google_api_key: googleKeyDraft.trim(),
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        throw new Error(data.error || "保存に失敗しました");
+      }
+      toast.success("翻訳設定を保存しました");
+      await loadTranslationSettings();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "保存に失敗しました");
+    } finally {
+      setTranslationSaving(false);
+    }
+  };
+
+  const handleClearDeeplKey = async () => {
+    setTranslationSaving(true);
+    try {
+      const res = await fetch("/api/settings/translation", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          history_provider: historyProvider,
+          input_provider: inputProvider,
+          clear_deepl: true,
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "削除に失敗しました");
+      toast.success("DeepL の API キーを削除しました");
+      await loadTranslationSettings();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "削除に失敗しました");
+    } finally {
+      setTranslationSaving(false);
+    }
+  };
+
+  const handleClearGoogleKey = async () => {
+    setTranslationSaving(true);
+    try {
+      const res = await fetch("/api/settings/translation", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          history_provider: historyProvider,
+          input_provider: inputProvider,
+          clear_google: true,
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "削除に失敗しました");
+      toast.success("Google の API キーを削除しました");
+      await loadTranslationSettings();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "削除に失敗しました");
+    } finally {
+      setTranslationSaving(false);
+    }
+  };
 
   const handleShopeeOAuth = async () => {
     setOauthLoading(true);
@@ -108,8 +241,231 @@ export default function SettingsPage() {
       <div className="min-w-0">
         <h2 className="text-foreground font-bold text-base sm:text-lg">設定</h2>
         <p className="text-muted-foreground text-sm mt-0.5">
-          Shopeeアカウント接続とシステム設定
+          翻訳・Shopee連携・通知など
         </p>
+      </div>
+
+      {/* Translation (BayChat-style) */}
+      <div className="bg-card rounded-xl border border-border shadow-card p-5 space-y-5">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+            <Languages size={14} className="text-primary" />
+          </div>
+          <div>
+            <p className="font-semibold text-foreground text-sm">
+              翻訳ツール設定
+            </p>
+            <p className="text-muted-foreground text-xs">
+              チャットの翻訳に使うエンジンと API キーを登録します
+            </p>
+          </div>
+        </div>
+
+        {translationLoading ? (
+          <div className="flex items-center gap-2 text-muted-foreground text-sm">
+            <Loader2 size={14} className="animate-spin" />
+            読み込み中…
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-foreground">
+                メッセージ履歴の翻訳
+              </Label>
+              <RadioGroup
+                value={historyProvider}
+                onValueChange={(v) =>
+                  setHistoryProvider(v as TranslationProvider)
+                }
+                className="flex flex-wrap gap-4"
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="deepl" id="tr-h-deepl" />
+                  <Label htmlFor="tr-h-deepl" className="font-normal cursor-pointer">
+                    DeepL
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="google" id="tr-h-google" />
+                  <Label htmlFor="tr-h-google" className="font-normal cursor-pointer">
+                    Google翻訳
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-foreground">
+                入力メッセージの翻訳
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                将来の入力補助用に保存します（現在のチャット画面は履歴側の設定を使用）
+              </p>
+              <RadioGroup
+                value={inputProvider}
+                onValueChange={(v) =>
+                  setInputProvider(v as TranslationProvider)
+                }
+                className="flex flex-wrap gap-4"
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="deepl" id="tr-i-deepl" />
+                  <Label htmlFor="tr-i-deepl" className="font-normal cursor-pointer">
+                    DeepL
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="google" id="tr-i-google" />
+                  <Label htmlFor="tr-i-google" className="font-normal cursor-pointer">
+                    Google翻訳
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+
+            <Separator />
+
+            <Tabs defaultValue="deepl" className="w-full">
+              <TabsList className="grid w-full max-w-md grid-cols-2">
+                <TabsTrigger value="deepl">DeepL</TabsTrigger>
+                <TabsTrigger value="google">Google翻訳</TabsTrigger>
+              </TabsList>
+              <TabsContent value="deepl" className="space-y-3 mt-4">
+                {translationMeta?.deepl_usage && (
+                  <div className="rounded-lg bg-muted/50 border border-border px-3 py-2 text-xs space-y-1">
+                    <p className="font-medium text-foreground">
+                      翻訳可能な残りの文字数（DeepL）
+                    </p>
+                    <p className="text-muted-foreground">
+                      今月の利用:{" "}
+                      {translationMeta.deepl_usage.character_count.toLocaleString()}{" "}
+                      /{" "}
+                      {translationMeta.deepl_usage.character_limit.toLocaleString()}{" "}
+                      文字
+                    </p>
+                  </div>
+                )}
+                {translationMeta?.env_deepl_fallback && (
+                  <p className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 rounded-md px-3 py-2">
+                    データベースにキーがないため、環境変数{" "}
+                    <code className="text-[11px]">DEEPL_API_KEY</code>{" "}
+                    が使われています。下にキーを保存するとアプリ側の設定が優先されます。
+                  </p>
+                )}
+                <div className="space-y-1.5">
+                  <Label htmlFor="deepl-key" className="text-xs font-medium">
+                    API 認証キー
+                  </Label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Input
+                      id="deepl-key"
+                      type="password"
+                      autoComplete="off"
+                      placeholder={
+                        translationMeta?.deepl_key_masked
+                          ? `保存済み（${translationMeta.deepl_key_masked}）`
+                          : "未設定"
+                      }
+                      value={deeplKeyDraft}
+                      onChange={(e) => setDeeplKeyDraft(e.target.value)}
+                      className="text-sm font-mono flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      disabled={translationSaving || !translationMeta?.deepl_key_configured}
+                      onClick={handleClearDeeplKey}
+                    >
+                      キー削除
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    DeepL API は無料枠で発行できます（数分程度）。
+                  </p>
+                  <a
+                    href="https://www.deepl.com/pro-api"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  >
+                    DeepL API の取得
+                    <ExternalLink size={12} />
+                  </a>
+                </div>
+              </TabsContent>
+              <TabsContent value="google" className="space-y-3 mt-4">
+                {translationMeta?.env_google_fallback && (
+                  <p className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 rounded-md px-3 py-2">
+                    環境変数{" "}
+                    <code className="text-[11px]">GOOGLE_TRANSLATE_API_KEY</code>{" "}
+                    が使われています。
+                  </p>
+                )}
+                <div className="space-y-1.5">
+                  <Label htmlFor="google-key" className="text-xs font-medium">
+                    API キー（Cloud Translation API）
+                  </Label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Input
+                      id="google-key"
+                      type="password"
+                      autoComplete="off"
+                      placeholder={
+                        translationMeta?.google_key_masked
+                          ? `保存済み（${translationMeta.google_key_masked}）`
+                          : "未設定"
+                      }
+                      value={googleKeyDraft}
+                      onChange={(e) => setGoogleKeyDraft(e.target.value)}
+                      className="text-sm font-mono flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      disabled={translationSaving || !translationMeta?.google_key_configured}
+                      onClick={handleClearGoogleKey}
+                    >
+                      キー削除
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Google Cloud Console で API キーを発行し、Cloud Translation API
+                    を有効にしてください。
+                  </p>
+                  <a
+                    href="https://cloud.google.com/translate/docs/setup"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  >
+                    セットアップ手順
+                    <ExternalLink size={12} />
+                  </a>
+                </div>
+              </TabsContent>
+            </Tabs>
+
+            <Button
+              type="button"
+              onClick={handleSaveTranslation}
+              disabled={translationSaving}
+              className="gradient-primary text-primary-foreground gap-2"
+            >
+              {translationSaving ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  保存中…
+                </>
+              ) : (
+                "保存"
+              )}
+            </Button>
+          </>
+        )}
       </div>
 
       {/* Notification sounds */}
