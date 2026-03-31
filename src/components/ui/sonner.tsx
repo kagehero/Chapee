@@ -1,14 +1,17 @@
-import { useTheme } from "next-themes";
+"use client";
+
 import { Toaster as Sonner, toast } from "sonner";
 
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
+/**
+ * ThemeProvider（next-themes）をルートに置いていないため、トーストはライトテーマで固定。
+ * ダークモード対応する場合は ThemeProvider でラップしてから useTheme を使う。
+ */
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme();
-
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme="light"
       className="toaster group"
       toastOptions={{
         classNames: {

@@ -26,6 +26,7 @@ dist-ssr
 # Next.js build output
 .next
 .turbo
+*.tsbuildinfo
 
 # Environment variables
 .env

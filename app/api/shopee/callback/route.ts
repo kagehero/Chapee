@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { getAccessToken, getShopInfo } from "@/lib/shopee-api";
 import { getCollection } from "@/lib/mongodb";
+
+const OAUTH_COOKIE = "shopee_oauth_state";
 
 /**
  * Shopee OAuth callback - exchanges code for access token
@@ -9,21 +12,56 @@ import { getCollection } from "@/lib/mongodb";
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
+    const oauthError = searchParams.get("error");
+    const cookieStore = await cookies();
+
+    if (oauthError) {
+      cookieStore.delete(OAUTH_COOKIE);
+      return NextResponse.redirect(
+        new URL(
+          `/dashboard?shopee_error=${encodeURIComponent(
+            "Shopee側で認証が拒否されたか、キャンセルされました。"
+          )}`,
+          request.url
+        )
+      );
+    }
+
+    if (!cookieStore.get(OAUTH_COOKIE)?.value) {
+      return NextResponse.redirect(
+        new URL(
+          `/dashboard?shopee_error=${encodeURIComponent(
+            "連携セッションが無効です。「Shopeeアカウントを連携」を再度お試しください。"
+          )}`,
+          request.url
+        )
+      );
+    }
+    cookieStore.delete(OAUTH_COOKIE);
+
     const code = searchParams.get("code");
     const shopIdParam = searchParams.get("shop_id");
     const country = searchParams.get("country") || "SG";
 
     if (!code) {
-      return NextResponse.json(
-        { error: "認証コードが見つかりません" },
-        { status: 400 }
+      return NextResponse.redirect(
+        new URL(
+          `/dashboard?shopee_error=${encodeURIComponent(
+            "認証コードを取得できませんでした。もう一度お試しください。"
+          )}`,
+          request.url
+        )
       );
     }
 
     if (!shopIdParam) {
-      return NextResponse.json(
-        { error: "ショップIDが見つかりません" },
-        { status: 400 }
+      return NextResponse.redirect(
+        new URL(
+          `/dashboard?shopee_error=${encodeURIComponent(
+            "ショップ情報を取得できませんでした。"
+          )}`,
+          request.url
+        )
       );
     }
 
@@ -74,15 +112,14 @@ export async function GET(request: NextRequest) {
       { upsert: true }
     );
 
-    // Redirect to settings page with success message
     return NextResponse.redirect(
-      new URL("/settings?shopee_connected=true", request.url)
+      new URL("/dashboard?shopee_connected=true", request.url)
     );
   } catch (error) {
     console.error("Shopee callback error:", error);
     return NextResponse.redirect(
       new URL(
-        `/settings?shopee_error=${encodeURIComponent(
+        `/dashboard?shopee_error=${encodeURIComponent(
           error instanceof Error ? error.message : "接続に失敗しました"
         )}`,
         request.url

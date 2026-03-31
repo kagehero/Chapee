@@ -72,6 +72,24 @@ export default function DashboardPage() {
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const backgroundSyncInFlightRef = useRef(false);
+  /** Misconfigured redirect (e.g. Google): user pastes ?code=&shop_id= onto this page */
+  const oauthRecoveryRef = useRef(false);
+
+  // Shopee OAuth: callback redirects to /dashboard?shopee_connected=… or ?shopee_error=…
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("shopee_connected");
+    const err = params.get("shopee_error");
+    if (connected !== "true" && !err) return;
+
+    if (connected === "true") {
+      toast.success("Shopeeアカウントを接続しました");
+    } else if (err) {
+      toast.error(decodeURIComponent(err));
+    }
+    router.replace("/dashboard", { scroll: false });
+  }, [router]);
 
   const fetchChats = useCallback(async () => {
     const res = await fetch("/api/chats");
@@ -105,6 +123,44 @@ export default function DashboardPage() {
       backgroundSyncInFlightRef.current = false;
     }
   }, [fetchChats]);
+
+  // Redirect URL が Google 等のとき: アドレスバーの code / shop_id を付けて /dashboard を開いた場合の救済
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    const shopId = params.get("shop_id");
+    if (!code || !shopId) return;
+    if (params.get("shopee_connected") === "true" || params.get("shopee_error"))
+      return;
+    if (oauthRecoveryRef.current) return;
+    oauthRecoveryRef.current = true;
+
+    (async () => {
+      try {
+        const res = await fetch("/api/shopee/connect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            code,
+            shop_id: shopId,
+            country: "SG",
+          }),
+        });
+        const data = (await res.json()) as { error?: string };
+        if (!res.ok) {
+          throw new Error(data.error || "接続に失敗しました");
+        }
+        toast.success("Shopeeアカウントを接続しました");
+        router.replace("/dashboard", { scroll: false });
+        await runBackgroundSync();
+      } catch (e) {
+        oauthRecoveryRef.current = false;
+        toast.error(e instanceof Error ? e.message : "接続に失敗しました");
+        router.replace("/dashboard", { scroll: false });
+      }
+    })();
+  }, [router, runBackgroundSync]);
 
   // 1) Load cached chats from MongoDB immediately. 2) Then sync from Shopee in the background
   // (does not block the first paint).

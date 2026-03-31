@@ -124,16 +124,31 @@ export default function ChatDetailPage() {
     }
   };
 
-  const handleTranslate = (msgId: string | number, content: string) => {
+  const handleTranslate = async (msgId: string | number, content: string) => {
     const key = String(msgId);
     setTranslating(msgId);
-    setTimeout(() => {
+    try {
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: content, target_lang: "JA" }),
+      });
+      const data = (await res.json()) as { text?: string; error?: string };
+      if (!res.ok) {
+        throw new Error(data.error || "翻訳に失敗しました");
+      }
+      if (!data.text) {
+        throw new Error("翻訳結果が空です");
+      }
       setTranslatedMessages((prev) => ({
         ...prev,
-        [key]: `[翻訳] ${content} → 「${content.length > 20 ? '長い英文のメッセージです...' : 'メッセージの翻訳結果'}」`,
+        [key]: `[翻訳] 「${data.text}」`,
       }));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "翻訳に失敗しました");
+    } finally {
       setTranslating(null);
-    }, 1000);
+    }
   };
 
 

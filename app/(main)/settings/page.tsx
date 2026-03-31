@@ -1,19 +1,44 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
-import { Store, CheckCircle2, RefreshCw, Loader2, Bell } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import {
+  Store,
+  CheckCircle2,
+  RefreshCw,
+  Loader2,
+  Bell,
+  Languages,
+  ExternalLink,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
+import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "sonner";
 import {
   getNotificationSoundsEnabled,
   setNotificationSoundsEnabled,
 } from "@/lib/notification-sound-settings";
+
+type TranslationProvider = "deepl" | "google";
+
+type TranslationSettingsResponse = {
+  history_provider: TranslationProvider;
+  input_provider: TranslationProvider;
+  deepl_key_configured: boolean;
+  google_key_configured: boolean;
+  env_deepl_fallback: boolean;
+  env_google_fallback: boolean;
+  deepl_key_masked: string | null;
+  google_key_masked: string | null;
+  deepl_usage: {
+    character_count: number;
+    character_limit: number;
+  } | null;
+};
 
 type ShopeeConnection = {
   shop_id: number;
@@ -35,14 +60,21 @@ const COUNTRIES = [
 ];
 
 export default function SettingsPage() {
-  const searchParams = useSearchParams();
-  const [loading, setLoading] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [code, setCode] = useState("");
-  const [shopId, setShopId] = useState("");
-  const [country, setCountry] = useState("SG");
   const [connections, setConnections] = useState<ShopeeConnection[]>([]);
   const [notificationSoundsOn, setNotificationSoundsOn] = useState(true);
+
+  const [historyProvider, setHistoryProvider] =
+    useState<TranslationProvider>("deepl");
+  const [inputProvider, setInputProvider] =
+    useState<TranslationProvider>("deepl");
+  const [deeplKeyDraft, setDeeplKeyDraft] = useState("");
+  const [googleKeyDraft, setGoogleKeyDraft] = useState("");
+  const [translationMeta, setTranslationMeta] =
+    useState<TranslationSettingsResponse | null>(null);
+  const [translationLoading, setTranslationLoading] = useState(true);
+  const [translationSaving, setTranslationSaving] = useState(false);
 
   useEffect(() => {
     setNotificationSoundsOn(getNotificationSoundsEnabled());
@@ -54,22 +86,7 @@ export default function SettingsPage() {
     toast.success(checked ? "通知音をオンにしました" : "通知音をオフにしました");
   };
 
-  useEffect(() => {
-    // Show success/error messages from OAuth redirect
-    const connected = searchParams?.get("shopee_connected");
-    const error = searchParams?.get("shopee_error");
-
-    if (connected === "true") {
-      toast.success("Shopeeアカウントを接続しました");
-    } else if (error) {
-      toast.error(decodeURIComponent(error));
-    }
-
-    // Load existing connections
-    loadConnections();
-  }, [searchParams]);
-
-  const loadConnections = async () => {
+  const loadConnections = useCallback(async () => {
     try {
       const res = await fetch("/api/shopee/status");
       if (res.ok) {
@@ -79,35 +96,125 @@ export default function SettingsPage() {
     } catch (err) {
       console.error("Failed to load connections:", err);
     }
+  }, []);
+
+  useEffect(() => {
+    void loadConnections();
+  }, [loadConnections]);
+
+  const loadTranslationSettings = useCallback(async () => {
+    setTranslationLoading(true);
+    try {
+      const res = await fetch("/api/settings/translation");
+      if (!res.ok) return;
+      const data = (await res.json()) as TranslationSettingsResponse;
+      setTranslationMeta(data);
+      setHistoryProvider(data.history_provider);
+      setInputProvider(data.input_provider);
+      setDeeplKeyDraft("");
+      setGoogleKeyDraft("");
+    } catch {
+      console.error("Failed to load translation settings");
+    } finally {
+      setTranslationLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadTranslationSettings();
+  }, [loadTranslationSettings]);
+
+  const handleSaveTranslation = async () => {
+    setTranslationSaving(true);
+    try {
+      const res = await fetch("/api/settings/translation", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          history_provider: historyProvider,
+          input_provider: inputProvider,
+          deepl_api_key: deeplKeyDraft.trim(),
+          google_api_key: googleKeyDraft.trim(),
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        throw new Error(data.error || "保存に失敗しました");
+      }
+      toast.success("翻訳設定を保存しました");
+      await loadTranslationSettings();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "保存に失敗しました");
+    } finally {
+      setTranslationSaving(false);
+    }
   };
 
-  const handleConnect = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-
+  const handleClearDeeplKey = async () => {
+    setTranslationSaving(true);
     try {
-      const res = await fetch("/api/shopee/connect", {
-        method: "POST",
+      const res = await fetch("/api/settings/translation", {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, shop_id: shopId, country }),
+        body: JSON.stringify({
+          history_provider: historyProvider,
+          input_provider: inputProvider,
+          clear_deepl: true,
+        }),
       });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "削除に失敗しました");
+      toast.success("DeepL の API キーを削除しました");
+      await loadTranslationSettings();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "削除に失敗しました");
+    } finally {
+      setTranslationSaving(false);
+    }
+  };
 
-      const data = await res.json();
+  const handleClearGoogleKey = async () => {
+    setTranslationSaving(true);
+    try {
+      const res = await fetch("/api/settings/translation", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          history_provider: historyProvider,
+          input_provider: inputProvider,
+          clear_google: true,
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "削除に失敗しました");
+      toast.success("Google の API キーを削除しました");
+      await loadTranslationSettings();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "削除に失敗しました");
+    } finally {
+      setTranslationSaving(false);
+    }
+  };
 
+  const handleShopeeOAuth = async () => {
+    setOauthLoading(true);
+    try {
+      const res = await fetch("/api/shopee/auth-url", {
+        credentials: "include",
+      });
+      const data = (await res.json()) as { url?: string; error?: string };
       if (!res.ok) {
-        throw new Error(data.error || "接続に失敗しました");
+        throw new Error(data.error || "認証URLの取得に失敗しました");
       }
-
-      toast.success(`${country}ストアを接続しました`);
-      setCode("");
-      setShopId("");
-      loadConnections();
+      if (!data.url) {
+        throw new Error("認証URLが無効です");
+      }
+      window.location.href = data.url;
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "接続に失敗しました"
+        error instanceof Error ? error.message : "接続の準備に失敗しました"
       );
-    } finally {
-      setLoading(false);
+      setOauthLoading(false);
     }
   };
 
@@ -134,8 +241,231 @@ export default function SettingsPage() {
       <div className="min-w-0">
         <h2 className="text-foreground font-bold text-base sm:text-lg">設定</h2>
         <p className="text-muted-foreground text-sm mt-0.5">
-          Shopeeアカウント接続とシステム設定
+          翻訳・Shopee連携・通知など
         </p>
+      </div>
+
+      {/* Translation (BayChat-style) */}
+      <div className="bg-card rounded-xl border border-border shadow-card p-5 space-y-5">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+            <Languages size={14} className="text-primary" />
+          </div>
+          <div>
+            <p className="font-semibold text-foreground text-sm">
+              翻訳ツール設定
+            </p>
+            <p className="text-muted-foreground text-xs">
+              チャットの翻訳に使うエンジンと API キーを登録します
+            </p>
+          </div>
+        </div>
+
+        {translationLoading ? (
+          <div className="flex items-center gap-2 text-muted-foreground text-sm">
+            <Loader2 size={14} className="animate-spin" />
+            読み込み中…
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-foreground">
+                メッセージ履歴の翻訳
+              </Label>
+              <RadioGroup
+                value={historyProvider}
+                onValueChange={(v) =>
+                  setHistoryProvider(v as TranslationProvider)
+                }
+                className="flex flex-wrap gap-4"
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="deepl" id="tr-h-deepl" />
+                  <Label htmlFor="tr-h-deepl" className="font-normal cursor-pointer">
+                    DeepL
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="google" id="tr-h-google" />
+                  <Label htmlFor="tr-h-google" className="font-normal cursor-pointer">
+                    Google翻訳
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-foreground">
+                入力メッセージの翻訳
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                将来の入力補助用に保存します（現在のチャット画面は履歴側の設定を使用）
+              </p>
+              <RadioGroup
+                value={inputProvider}
+                onValueChange={(v) =>
+                  setInputProvider(v as TranslationProvider)
+                }
+                className="flex flex-wrap gap-4"
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="deepl" id="tr-i-deepl" />
+                  <Label htmlFor="tr-i-deepl" className="font-normal cursor-pointer">
+                    DeepL
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="google" id="tr-i-google" />
+                  <Label htmlFor="tr-i-google" className="font-normal cursor-pointer">
+                    Google翻訳
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+
+            <Separator />
+
+            <Tabs defaultValue="deepl" className="w-full">
+              <TabsList className="grid w-full max-w-md grid-cols-2">
+                <TabsTrigger value="deepl">DeepL</TabsTrigger>
+                <TabsTrigger value="google">Google翻訳</TabsTrigger>
+              </TabsList>
+              <TabsContent value="deepl" className="space-y-3 mt-4">
+                {translationMeta?.deepl_usage && (
+                  <div className="rounded-lg bg-muted/50 border border-border px-3 py-2 text-xs space-y-1">
+                    <p className="font-medium text-foreground">
+                      翻訳可能な残りの文字数（DeepL）
+                    </p>
+                    <p className="text-muted-foreground">
+                      今月の利用:{" "}
+                      {translationMeta.deepl_usage.character_count.toLocaleString()}{" "}
+                      /{" "}
+                      {translationMeta.deepl_usage.character_limit.toLocaleString()}{" "}
+                      文字
+                    </p>
+                  </div>
+                )}
+                {translationMeta?.env_deepl_fallback && (
+                  <p className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 rounded-md px-3 py-2">
+                    データベースにキーがないため、環境変数{" "}
+                    <code className="text-[11px]">DEEPL_API_KEY</code>{" "}
+                    が使われています。下にキーを保存するとアプリ側の設定が優先されます。
+                  </p>
+                )}
+                <div className="space-y-1.5">
+                  <Label htmlFor="deepl-key" className="text-xs font-medium">
+                    API 認証キー
+                  </Label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Input
+                      id="deepl-key"
+                      type="password"
+                      autoComplete="off"
+                      placeholder={
+                        translationMeta?.deepl_key_masked
+                          ? `保存済み（${translationMeta.deepl_key_masked}）`
+                          : "未設定"
+                      }
+                      value={deeplKeyDraft}
+                      onChange={(e) => setDeeplKeyDraft(e.target.value)}
+                      className="text-sm font-mono flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      disabled={translationSaving || !translationMeta?.deepl_key_configured}
+                      onClick={handleClearDeeplKey}
+                    >
+                      キー削除
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    DeepL API は無料枠で発行できます（数分程度）。
+                  </p>
+                  <a
+                    href="https://www.deepl.com/pro-api"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  >
+                    DeepL API の取得
+                    <ExternalLink size={12} />
+                  </a>
+                </div>
+              </TabsContent>
+              <TabsContent value="google" className="space-y-3 mt-4">
+                {translationMeta?.env_google_fallback && (
+                  <p className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 rounded-md px-3 py-2">
+                    環境変数{" "}
+                    <code className="text-[11px]">GOOGLE_TRANSLATE_API_KEY</code>{" "}
+                    が使われています。
+                  </p>
+                )}
+                <div className="space-y-1.5">
+                  <Label htmlFor="google-key" className="text-xs font-medium">
+                    API キー（Cloud Translation API）
+                  </Label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Input
+                      id="google-key"
+                      type="password"
+                      autoComplete="off"
+                      placeholder={
+                        translationMeta?.google_key_masked
+                          ? `保存済み（${translationMeta.google_key_masked}）`
+                          : "未設定"
+                      }
+                      value={googleKeyDraft}
+                      onChange={(e) => setGoogleKeyDraft(e.target.value)}
+                      className="text-sm font-mono flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      disabled={translationSaving || !translationMeta?.google_key_configured}
+                      onClick={handleClearGoogleKey}
+                    >
+                      キー削除
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Google Cloud Console で API キーを発行し、Cloud Translation API
+                    を有効にしてください。
+                  </p>
+                  <a
+                    href="https://cloud.google.com/translate/docs/setup"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  >
+                    セットアップ手順
+                    <ExternalLink size={12} />
+                  </a>
+                </div>
+              </TabsContent>
+            </Tabs>
+
+            <Button
+              type="button"
+              onClick={handleSaveTranslation}
+              disabled={translationSaving}
+              className="gradient-primary text-primary-foreground gap-2"
+            >
+              {translationSaving ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  保存中…
+                </>
+              ) : (
+                "保存"
+              )}
+            </Button>
+          </>
+        )}
       </div>
 
       {/* Notification sounds */}
@@ -174,77 +504,34 @@ export default function SettingsPage() {
               Shopeeアカウント接続
             </p>
             <p className="text-muted-foreground text-xs">
-              各国のストアのcode と shop_id を入力
+              ボタンからShopeeにログインし、権限を許可すると連携が完了します
             </p>
           </div>
         </div>
 
-        <form onSubmit={handleConnect} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="country" className="text-xs font-medium">
-                国 / Country
-              </Label>
-              <Select value={country} onValueChange={setCountry}>
-                <SelectTrigger className="text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {COUNTRIES.map((c) => (
-                    <SelectItem key={c.code} value={c.code}>
-                      {c.code} - {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="shop_id" className="text-xs font-medium">
-                Shop ID
-              </Label>
-              <Input
-                id="shop_id"
-                type="number"
-                value={shopId}
-                onChange={(e) => setShopId(e.target.value)}
-                placeholder="12345678"
-                required
-                className="text-sm"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="code" className="text-xs font-medium">
-                Authorization Code
-              </Label>
-              <Input
-                id="code"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                placeholder="code..."
-                required
-                className="text-sm font-mono"
-              />
-            </div>
-          </div>
-
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <Button
-            type="submit"
-            disabled={loading}
-            className="gradient-primary text-primary-foreground shadow-green gap-2"
+            type="button"
+            onClick={handleShopeeOAuth}
+            disabled={oauthLoading}
+            className="gradient-primary text-primary-foreground shadow-green gap-2 w-full sm:w-auto"
           >
-            {loading ? (
+            {oauthLoading ? (
               <>
                 <Loader2 size={14} className="animate-spin" />
-                接続中...
+                準備中...
               </>
             ) : (
               <>
                 <Store size={14} />
-                アカウント接続
+                Shopeeアカウントを連携
               </>
             )}
           </Button>
-        </form>
+          <p className="text-muted-foreground text-xs sm:max-w-md">
+            Partner ID や認証コードの入力は不要です。連携後、下に接続済み店舗が表示されます。
+          </p>
+        </div>
       </div>
 
       {/* Connected Accounts */}
@@ -311,21 +598,15 @@ export default function SettingsPage() {
 
       {/* Instructions */}
       <div className="bg-muted/50 rounded-xl border border-border p-4 space-y-2">
-        <p className="text-foreground font-semibold text-sm">
-          Shopee APIの接続手順
-        </p>
+        <p className="text-foreground font-semibold text-sm">連携の流れ</p>
         <ol className="text-muted-foreground text-xs space-y-1 list-decimal list-inside">
-          <li>
-            Shopee Open Platformで Partner ID と Partner Key を取得してください
-          </li>
-          <li>
-            .env ファイルに SHOPEE_PARTNER_ID と SHOPEE_PARTNER_KEY を設定
-          </li>
-          <li>
-            各国のShopeeストア（SG/PH/MY/TW/TH/ID/VN/BR）のcode と shop_id を入力
-          </li>
-          <li>「アカウント接続」ボタンをクリックしてトークンを取得</li>
+          <li>「Shopeeアカウントを連携」をクリック</li>
+          <li>Shopeeの画面でログインし、アプリの連携を許可</li>
+          <li>自動でこの画面に戻り、接続済みとして表示されます</li>
         </ol>
+        <p className="text-muted-foreground text-xs pt-1 border-t border-border mt-2">
+          運用側では Shopee Open Platform の Partner 資格情報を環境変数に設定し、リダイレクトURLをコンソール登録内容と一致させてください。
+        </p>
       </div>
     </div>
   );
