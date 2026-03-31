@@ -5,7 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import {
   ArrowLeft, Send, Languages, Package, Clock,
   ChevronDown, FileText, ShoppingBag, Copy, User, Info,
-  Paperclip, Image as ImageIcon, File, X, Loader2
+  Paperclip, Image as ImageIcon, File, X, Loader2, ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -51,6 +51,16 @@ type ConversationType = {
   shop_id: number;
 };
 
+type OrderInfo = {
+  order_sn: string;
+  order_status: string;
+  currency: string;
+  total_amount: number;
+  item_preview: string;
+  item_count: number;
+  order_url: string;
+};
+
 export default function ChatDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -64,6 +74,8 @@ export default function ChatDetailPage() {
   const [translating, setTranslating] = useState<string | number | null>(null);
   const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
   const [infoOpen, setInfoOpen] = useState(false);
+  const [orders, setOrders] = useState<OrderInfo[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { playMessageSound, playOrderSound } = useNotificationSounds();
@@ -76,6 +88,30 @@ export default function ChatDetailPage() {
       loadMessages();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    (async () => {
+      setOrdersLoading(true);
+      try {
+        const res = await fetch(
+          `/api/chats/${encodeURIComponent(id)}/orders`
+        );
+        const data = await res.json();
+        if (!cancelled && res.ok) {
+          setOrders(Array.isArray(data.orders) ? data.orders : []);
+        }
+      } catch {
+        if (!cancelled) setOrders([]);
+      } finally {
+        if (!cancelled) setOrdersLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   // Play notification sound when new customer messages arrive (API-loaded thread)
@@ -286,6 +322,55 @@ export default function ChatDetailPage() {
                 <span className="text-foreground font-medium">{conversation.customer_id}</span>
               </div>
             </div>
+          </div>
+
+          <div className="bg-card rounded-xl border border-border shadow-card p-4 space-y-2">
+            <div className="flex items-center gap-2 pb-1 border-b border-border">
+              <Package size={14} className="text-primary" />
+              <p className="text-foreground font-semibold text-sm">注文情報</p>
+            </div>
+            {ordersLoading ? (
+              <div className="flex items-center gap-2 text-muted-foreground text-xs py-2">
+                <Loader2 size={14} className="animate-spin" />
+                読み込み中…
+              </div>
+            ) : orders.length === 0 ? (
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                チャットまたは直近90日の注文一覧から該当する注文が見つかりませんでした。
+              </p>
+            ) : (
+              <ul className="space-y-2 max-h-[min(40vh,320px)] overflow-y-auto scrollbar-thin">
+                {orders.map((o) => (
+                  <li
+                    key={o.order_sn}
+                    className="rounded-lg border border-border bg-muted/30 px-2.5 py-2 text-xs"
+                  >
+                    <a
+                      href={o.order_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono font-semibold text-primary hover:underline inline-flex items-center gap-1 break-all"
+                    >
+                      {o.order_sn}
+                      <ExternalLink size={12} className="shrink-0" />
+                    </a>
+                    <div className="text-muted-foreground mt-0.5">
+                      {[o.order_status, o.currency && o.total_amount > 0 ? `${o.currency} ${o.total_amount.toLocaleString()}` : ""]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </div>
+                    {o.item_preview ? (
+                      <p className="text-foreground mt-1 line-clamp-2">
+                        {o.item_preview}
+                        {o.item_count > 1
+                          ? ` ほか${o.item_count - 1}点`
+                          : ""}
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </>
       )}

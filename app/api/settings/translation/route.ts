@@ -120,15 +120,12 @@ export async function PUT(request: NextRequest) {
     if (body.clear_google === true) set.google_api_key = null;
     else if (googleIn) set.google_api_key = googleIn;
 
+    // $set と $setOnInsert で同じパス（deepl_api_key 等）を触ると Mongo が conflict を返す
     await col.updateOne(
       { _id: SINGLETON_ID },
       {
         $set: set,
-        $setOnInsert: {
-          _id: SINGLETON_ID,
-          deepl_api_key: null,
-          google_api_key: null,
-        },
+        $setOnInsert: { _id: SINGLETON_ID },
       },
       { upsert: true }
     );

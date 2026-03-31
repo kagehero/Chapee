@@ -25,6 +25,25 @@ function generateSignature(
     .digest("hex");
 }
 
+/** プロキシや Shopee 側で HTML / 空ボディが返る場合があるため、text → JSON.parse で扱う */
+async function parseShopeeResponseJson(
+  response: Response,
+  context: string
+): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  const trimmed = text.trim();
+  if (!trimmed) {
+    throw new Error(`${context}: empty body (HTTP ${response.status})`);
+  }
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(
+      `${context}: not JSON (HTTP ${response.status}): ${trimmed.slice(0, 280)}`
+    );
+  }
+}
+
 /**
  * Exchange authorization code for access token
  */
@@ -273,6 +292,96 @@ export async function sendMessage(
   });
 
   const data = await response.json();
+
+  if (data.error) {
+    throw new Error(`Shopee API Error: ${data.message || data.error}`);
+  }
+
+  return data;
+}
+
+/**
+ * Order list (for matching buyer → order_sn)
+ */
+export async function getOrderList(
+  accessToken: string,
+  shopId: number,
+  params: {
+    time_range_field: "create_time" | "update_time";
+    time_from: number;
+    time_to: number;
+    page_size: number;
+    cursor?: string;
+  }
+) {
+  const path = "/api/v2/order/get_order_list";
+  const timestamp = Math.floor(Date.now() / 1000);
+  const sign = generateSignature(path, timestamp, accessToken, shopId);
+
+  const url =
+    `${BASE_URL}${path}?` +
+    `partner_id=${PARTNER_ID}&` +
+    `timestamp=${timestamp}&` +
+    `access_token=${encodeURIComponent(accessToken)}&` +
+    `shop_id=${shopId}&` +
+    `sign=${sign}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      time_range_field: params.time_range_field,
+      time_from: params.time_from,
+      time_to: params.time_to,
+      page_size: params.page_size,
+      ...(params.cursor ? { cursor: params.cursor } : {}),
+    }),
+  });
+
+  const data = await parseShopeeResponseJson(response, "get_order_list");
+
+  if (data.error) {
+    throw new Error(`Shopee API Error: ${data.message || data.error}`);
+  }
+
+  return data;
+}
+
+/**
+ * Order detail by order_sn (max 50 per request)
+ */
+export async function getOrderDetail(
+  accessToken: string,
+  shopId: number,
+  orderSnList: string[],
+  responseOptionalFields?: string[]
+) {
+  const path = "/api/v2/order/get_order_detail";
+  const timestamp = Math.floor(Date.now() / 1000);
+  const sign = generateSignature(path, timestamp, accessToken, shopId);
+
+  const url =
+    `${BASE_URL}${path}?` +
+    `partner_id=${PARTNER_ID}&` +
+    `timestamp=${timestamp}&` +
+    `access_token=${encodeURIComponent(accessToken)}&` +
+    `shop_id=${shopId}&` +
+    `sign=${sign}`;
+
+  const body: Record<string, unknown> = {
+    order_sn_list: orderSnList.slice(0, 50),
+  };
+  if (responseOptionalFields?.length) {
+    body.response_optional_fields = responseOptionalFields;
+  }
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  const data = await parseShopeeResponseJson(response, "get_order_detail");
 
   if (data.error) {
     throw new Error(`Shopee API Error: ${data.message || data.error}`);
