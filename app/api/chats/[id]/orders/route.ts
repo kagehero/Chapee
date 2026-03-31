@@ -103,7 +103,7 @@ export async function GET(
 
     const now = Math.floor(Date.now() / 1000);
     const ninetyDays = 90 * 24 * 60 * 60;
-    let fromListApi = new Set<string>();
+    const fromListApi = new Set<string>();
 
     try {
       const listRes = (await getOrderList(accessToken, conversation.shop_id, {
