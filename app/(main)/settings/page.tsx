@@ -469,7 +469,10 @@ export default function SettingsPage() {
       </div>
 
       {/* Notification sounds */}
-      <div className="bg-card rounded-xl border border-border shadow-card p-5 space-y-4">
+      <div
+        id="notification-settings"
+        className="bg-card rounded-xl border border-border shadow-card p-5 space-y-4 scroll-mt-24"
+      >
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
             <Bell size={14} className="text-primary" />

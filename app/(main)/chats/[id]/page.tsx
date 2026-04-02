@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useMemo,
+  useCallback,
+  Fragment,
+} from "react";
 import { useRouter, useParams } from "next/navigation";
 import {
   ArrowLeft, Send, Languages, Package, Clock,
@@ -22,26 +29,307 @@ type AttachedFile = {
   url: string;
 };
 
+/** manual=手動 template=テンプレ auto=Chapee自動返信 auto_hint=Shopee側の自動っぽいメッセージ */
+type StaffSendKind =
+  | "manual"
+  | "template"
+  | "auto"
+  | "auto_hint"
+  | "unknown";
+
+type MessageContentKind = "text" | "item" | "order" | "sticker" | "image";
+
 type Message = {
   id: string | number;
   sender: "customer" | "staff";
   content: string;
   time: string;
+  content_kind?: MessageContentKind;
+  item_card?: { item_id?: string; name?: string; image_url?: string; shop_id?: string };
+  order_card?: { order_sn?: string };
+  sticker_card?: { image_url?: string; sticker_id?: string; package_id?: string };
+  image_card?: { url?: string };
+  order_url?: string;
+  item_url?: string;
+  /** 日付付き（例: 2026/03/28 14:30） */
+  datetime?: string;
+  /** YYYY-MM-DD（日付区切り線用） */
+  date_key?: string;
+  timestamp_ms?: number;
   translated: boolean;
   attachments?: AttachedFile[];
+  /** 店舗側メッセージのみ。手動 / テンプレ / Shopee から推定の自動 */
+  staffSendKind?: StaffSendKind;
 };
 
-const templates = [
-  { category: "発送前", items: ["発送準備中のご案内", "出荷完了のお知らせ", "追跡番号のご案内"] },
-  { category: "配達後", items: ["受取確認のお願い", "レビューのお願い", "返品・交換案内"] },
-  { category: "一般", items: ["お問い合わせへの返信", "謝罪文テンプレート", "営業時間外の自動返信"] },
-];
+function chatBubbleShell(isStaff: boolean) {
+  return cn(
+    "rounded-2xl px-3.5 py-2.5 text-sm shadow-sm border",
+    isStaff
+      ? "gradient-primary text-primary-foreground border-primary/30 rounded-br-md"
+      : "bg-slate-100 dark:bg-muted text-foreground border-slate-200 dark:border-border rounded-bl-md"
+  );
+}
 
-const templateTexts: Record<string, string> = {
-  "発送準備中のご案内": "この度はご注文いただきありがとうございます。現在、ご注文商品の発送準備を進めております。出荷後、追跡番号をお知らせいたします。",
-  "追跡番号のご案内": "ご注文の商品が発送されました。追跡番号：[TRACKING_NUMBER] にてご確認いただけます。",
-  "レビューのお願い": "この度はお買い上げいただきありがとうございます。商品はいかがでしたでしょうか？ぜひレビューをお寄せください。",
+function ChatMessageBody({ msg, isStaff }: { msg: Message; isStaff: boolean }) {
+  const card = chatBubbleShell(isStaff);
+  const kind = msg.content_kind ?? "text";
+
+  if (kind === "sticker") {
+    return (
+      <div className={card}>
+        {msg.sticker_card?.image_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={msg.sticker_card.image_url}
+            alt="スタンプ"
+            className="max-h-36 max-w-[min(180px,70vw)] rounded-md object-contain mx-auto"
+          />
+        ) : (
+          <p className="text-center text-sm">スタンプ</p>
+        )}
+      </div>
+    );
+  }
+
+  if (kind === "item") {
+    return (
+      <div className={card}>
+        <div className="flex gap-2.5 items-start">
+          {msg.item_card?.image_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={msg.item_card.image_url}
+              alt=""
+              className="w-16 h-16 rounded-md object-cover shrink-0 border border-black/10"
+            />
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-semibold opacity-80 mb-0.5">商品</p>
+            <p className="text-sm font-medium leading-snug break-words">
+              {msg.item_card?.name ?? msg.content}
+            </p>
+            {msg.item_card?.item_id ? (
+              <p className="text-[10px] opacity-70 mt-1 tabular-nums">ID: {msg.item_card.item_id}</p>
+            ) : null}
+            {msg.item_url ? (
+              <a
+                href={msg.item_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  "inline-flex items-center gap-1 text-xs mt-2 underline underline-offset-2",
+                  isStaff ? "text-primary-foreground/95" : "text-primary"
+                )}
+              >
+                商品ページを開く
+                <ExternalLink size={10} />
+              </a>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (kind === "order") {
+    return (
+      <div className={card}>
+        <p className="text-[11px] font-semibold opacity-80 mb-1">注文</p>
+        {msg.order_card?.order_sn ? (
+          <p className="text-sm font-mono break-all">{msg.order_card.order_sn}</p>
+        ) : null}
+        {msg.order_url ? (
+          <a
+            href={msg.order_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn(
+              "inline-flex items-center gap-1 text-xs mt-2 underline underline-offset-2",
+              isStaff ? "text-primary-foreground/95" : "text-primary"
+            )}
+          >
+            セラー注文を開く
+            <ExternalLink size={10} />
+          </a>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (kind === "image") {
+    const u = msg.image_card?.url;
+    return (
+      <div className={card}>
+        {u ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={u} alt="画像" className="max-w-[min(280px,85vw)] rounded-md object-contain" />
+        ) : (
+          <span className="text-sm">画像</span>
+        )}
+      </div>
+    );
+  }
+
+  if (msg.content) {
+    return <div className={card}>{msg.content}</div>;
+  }
+  return null;
+}
+
+function formatMessageTimestamps(ms: number) {
+  const d = new Date(ms);
+  return {
+    time: d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }),
+    datetime: d.toLocaleString("ja-JP", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+    date_key: d.toISOString().slice(0, 10),
+    timestamp_ms: ms,
+  };
+}
+
+function dateKeyToLabel(dateKey: string) {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  if (!y || !m || !d) return dateKey;
+  return new Date(y, m - 1, d).toLocaleDateString("ja-JP", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  });
+}
+
+/** `/api/reply-templates` とテンプレート管理画面と同期 */
+type ReplyTemplateRow = {
+  id: string;
+  country: string;
+  category: string;
+  name: string;
+  content: string;
+  autoReply: boolean;
+  langs: string[];
 };
+
+function groupReplyTemplatesByCategory(
+  rows: ReplyTemplateRow[],
+  country: string | null | undefined
+): { category: string; items: ReplyTemplateRow[] }[] {
+  const filtered =
+    country == null || country === ""
+      ? rows
+      : rows.filter(
+          (t) => t.country === "全て" || t.country === country
+        );
+  const map = new Map<string, ReplyTemplateRow[]>();
+  for (const t of filtered) {
+    const cat = t.category?.trim() || "その他";
+    if (!map.has(cat)) map.set(cat, []);
+    map.get(cat)!.push(t);
+  }
+  return Array.from(map.entries())
+    .sort(([a], [b]) => a.localeCompare(b, "ja"))
+    .map(([category, items]) => ({
+      category,
+      items: [...items].sort((x, y) => x.name.localeCompare(y.name, "ja")),
+    }));
+}
+
+function StaffKindBadge({ kind }: { kind?: StaffSendKind }) {
+  if (!kind || kind === "unknown") return null;
+  const cfg =
+    kind === "manual"
+      ? {
+          label: "手動",
+          className:
+            "bg-slate-200 text-slate-800 dark:bg-slate-600 dark:text-slate-100",
+        }
+      : kind === "template"
+        ? {
+            label: "テンプレ",
+            className:
+              "bg-violet-100 text-violet-900 dark:bg-violet-950 dark:text-violet-200",
+          }
+        : kind === "auto"
+          ? {
+              label: "自動返信",
+              className:
+                "bg-emerald-100 text-emerald-950 dark:bg-emerald-950 dark:text-emerald-100",
+            }
+          : kind === "auto_hint"
+            ? {
+                label: "自動(推定)",
+                className:
+                  "bg-amber-100 text-amber-950 dark:bg-amber-950 dark:text-amber-100",
+              }
+            : {
+                label: "自動",
+                className:
+                  "bg-amber-100 text-amber-950 dark:bg-amber-950 dark:text-amber-100",
+              };
+  return (
+    <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded", cfg.className)}>
+      {cfg.label}
+    </span>
+  );
+}
+
+function ChatParticipantAvatar({
+  imageUrl,
+  isStaff,
+  nameFallback,
+  size = "md",
+  variant = "default",
+}: {
+  imageUrl?: string | null;
+  isStaff: boolean;
+  nameFallback?: string;
+  size?: "sm" | "md";
+  variant?: "default" | "header";
+}) {
+  const [broken, setBroken] = useState(false);
+  const show = Boolean(imageUrl) && !broken;
+  const sz = size === "sm" ? "w-7 h-7" : "w-9 h-9";
+  const iconSz = size === "sm" ? 14 : 18;
+  return (
+    <div
+      className={cn(
+        "flex-shrink-0 rounded-full flex items-center justify-center border-2 overflow-hidden",
+        sz,
+        variant === "header"
+          ? "border-primary-foreground/35 bg-primary-foreground/15 text-primary-foreground"
+          : isStaff
+            ? "border-primary bg-primary/15 text-primary"
+            : "border-muted-foreground/25 bg-muted text-muted-foreground"
+      )}
+      title={
+        !isStaff && !show && nameFallback?.trim()
+          ? nameFallback.trim()
+          : undefined
+      }
+      aria-hidden
+    >
+      {show ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={imageUrl as string}
+          alt=""
+          className="w-full h-full object-cover"
+          onError={() => setBroken(true)}
+          referrerPolicy="no-referrer"
+        />
+      ) : isStaff ? (
+        <ShoppingBag size={iconSz} />
+      ) : (
+        <User size={iconSz} strokeWidth={2} />
+      )}
+    </div>
+  );
+}
 
 type ConversationType = {
   id: string;
@@ -49,6 +337,8 @@ type ConversationType = {
   customer_id: number;
   country: string;
   shop_id: number;
+  customer_avatar_url?: string | null;
+  shop_logo_url?: string | null;
 };
 
 type OrderInfo = {
@@ -71,6 +361,8 @@ export default function ChatDetailPage() {
   const [sending, setSending] = useState(false);
   const [inputMessage, setInputMessage] = useState("");
   const [showTemplates, setShowTemplates] = useState(false);
+  const [replyTemplates, setReplyTemplates] = useState<ReplyTemplateRow[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
   const [translating, setTranslating] = useState<string | number | null>(null);
   const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
   const [infoOpen, setInfoOpen] = useState(false);
@@ -81,6 +373,29 @@ export default function ChatDetailPage() {
   const { playMessageSound, playOrderSound } = useNotificationSounds();
   const isFirstMessagesLoadRef = useRef(true);
   const lastMessageCountRef = useRef(0);
+  /** テンプレ選択直後の ID（送信時に本文一致なら「テンプレ」扱い） */
+  const pendingTemplateIdRef = useRef<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const loadReplyTemplates = useCallback(async () => {
+    setTemplatesLoading(true);
+    try {
+      const res = await fetch("/api/reply-templates");
+      if (!res.ok) throw new Error("load failed");
+      const data = (await res.json()) as { templates?: ReplyTemplateRow[] };
+      setReplyTemplates(data.templates ?? []);
+    } catch {
+      toast.error("テンプレートの読み込みに失敗しました");
+      setReplyTemplates([]);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  }, []);
+
+  const groupedReplyTemplates = useMemo(
+    () => groupReplyTemplatesByCategory(replyTemplates, conversation?.country),
+    [replyTemplates, conversation?.country]
+  );
 
   // Load messages from API
   useEffect(() => {
@@ -89,6 +404,11 @@ export default function ChatDetailPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    loadReplyTemplates();
+  }, [id, loadReplyTemplates]);
 
   useEffect(() => {
     if (!id) return;
@@ -151,7 +471,63 @@ export default function ChatDetailPage() {
       if (!res.ok) throw new Error("Failed to load messages");
       const data = await res.json();
       setConversation(data.conversation);
-      setMessages(data.messages || []);
+      const raw = (data.messages || []) as Array<{
+        id?: string | number;
+        sender?: string;
+        content?: string;
+        time?: string;
+        datetime?: string;
+        date_key?: string;
+        timestamp_ms?: number;
+        staff_send_kind?: string;
+        content_kind?: MessageContentKind;
+        item_card?: Message["item_card"];
+        order_card?: Message["order_card"];
+        sticker_card?: Message["sticker_card"];
+        image_card?: Message["image_card"];
+        order_url?: string;
+        item_url?: string;
+      }>;
+      setMessages(
+        raw.map((m) => {
+          const sender = m.sender === "staff" ? "staff" : "customer";
+          const staffSendKind: StaffSendKind | undefined =
+            sender === "staff"
+              ? m.staff_send_kind === "manual"
+                ? "manual"
+                : m.staff_send_kind === "template"
+                  ? "template"
+                  : m.staff_send_kind === "auto"
+                    ? "auto"
+                    : m.staff_send_kind === "auto_hint"
+                      ? "auto_hint"
+                      : "unknown"
+              : undefined;
+          const tsMs =
+            typeof m.timestamp_ms === "number"
+              ? m.timestamp_ms
+              : undefined;
+          const fallbackTs = tsMs != null ? formatMessageTimestamps(tsMs) : null;
+          return {
+            id: String(m.id ?? ""),
+            sender,
+            content: String(m.content ?? ""),
+            content_kind: m.content_kind ?? "text",
+            item_card: m.item_card,
+            order_card: m.order_card,
+            sticker_card: m.sticker_card,
+            image_card: m.image_card,
+            order_url: m.order_url,
+            item_url: m.item_url,
+            time: String(m.time ?? ""),
+            datetime: m.datetime ?? fallbackTs?.datetime,
+            date_key: m.date_key ?? fallbackTs?.date_key,
+            timestamp_ms: tsMs ?? fallbackTs?.timestamp_ms,
+            translated: false,
+            staffSendKind,
+          };
+        })
+      );
     } catch (error) {
       console.error("Load messages error:", error);
       toast.error("メッセージの読み込みに失敗しました");
@@ -159,6 +535,11 @@ export default function ChatDetailPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (loading || messages.length === 0) return;
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [loading, messages.length]);
 
   const handleTranslate = async (msgId: string | number, content: string) => {
     const key = String(msgId);
@@ -190,13 +571,26 @@ export default function ChatDetailPage() {
 
   const handleSend = async () => {
     if (!inputMessage.trim() && attachedFiles.length === 0) return;
-    
+
+    const tplId = pendingTemplateIdRef.current;
+    pendingTemplateIdRef.current = null;
+    const tplRow =
+      tplId != null ? replyTemplates.find((t) => t.id === tplId) : undefined;
+    const isTplSend =
+      tplId != null &&
+      tplRow != null &&
+      inputMessage.trim() === tplRow.content.trim();
+    const staffSendKind: StaffSendKind = isTplSend ? "template" : "manual";
+
     setSending(true);
     try {
       const res = await fetch(`/api/chats/${encodeURIComponent(id)}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: inputMessage }),
+        body: JSON.stringify({
+          message: inputMessage,
+          send_kind: staffSendKind === "template" ? "template" : "manual",
+        }),
       });
 
       if (!res.ok) {
@@ -204,14 +598,19 @@ export default function ChatDetailPage() {
         throw new Error(data.error || "送信に失敗しました");
       }
 
-      // Add message to local state immediately
+      const ts = formatMessageTimestamps(Date.now());
       const newMessage: Message = {
         id: Date.now(),
         sender: "staff",
         content: inputMessage,
-        time: new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }),
+        content_kind: "text",
+        time: ts.time,
+        datetime: ts.datetime,
+        date_key: ts.date_key,
+        timestamp_ms: ts.timestamp_ms,
         translated: false,
         attachments: attachedFiles.length > 0 ? [...attachedFiles] : undefined,
+        staffSendKind,
       };
       
       setMessages((prev) => [...prev, { ...newMessage, id: String(newMessage.id) }]);
@@ -277,8 +676,9 @@ export default function ChatDetailPage() {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
-  const selectTemplate = (name: string) => {
-    setInputMessage(templateTexts[name] || `[${name}] テンプレートの内容がここに入ります。`);
+  const selectTemplate = (t: ReplyTemplateRow) => {
+    setInputMessage(t.content);
+    pendingTemplateIdRef.current = t.id;
     setShowTemplates(false);
   };
 
@@ -414,7 +814,13 @@ export default function ChatDetailPage() {
             >
               <Info size={18} />
             </button>
-            <MessageIcon />
+            <ChatParticipantAvatar
+              imageUrl={conversation?.customer_avatar_url}
+              isStaff={false}
+              nameFallback={conversation?.customer_name}
+              size="sm"
+              variant="header"
+            />
             <p className="text-primary-foreground font-semibold text-sm truncate">
               {conversation?.customer_name || "読み込み中..."} とのチャット
             </p>
@@ -442,7 +848,7 @@ export default function ChatDetailPage() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
           {loading ? (
             <div className="flex items-center justify-center h-full">
               <Loader2 className="animate-spin text-primary" size={32} />
@@ -452,135 +858,197 @@ export default function ChatDetailPage() {
               メッセージはありません
             </div>
           ) : (
-            messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={cn("flex", msg.sender === "staff" ? "justify-end" : "justify-start")}
-            >
-              <div className={cn(
-                "max-w-[85%] sm:max-w-[75%] space-y-1",
-                msg.sender === "staff" ? "items-end" : "items-start"
-              )}>
-                {/* Message text */}
-                {msg.content && (
-                  <div className={cn(
-                    "rounded-xl px-3.5 py-2.5 text-sm shadow-sm",
-                    msg.sender === "staff"
-                      ? "gradient-primary text-primary-foreground rounded-br-sm"
-                      : "bg-muted text-foreground rounded-bl-sm"
-                  )}>
-                    {msg.content}
-                  </div>
-                )}
-
-                {/* Attachments */}
-                {msg.attachments && msg.attachments.length > 0 && (
-                  <div className="space-y-2">
-                    {msg.attachments.map((file: AttachedFile) => (
-                      <div key={file.id}>
-                        {file.type.startsWith('image/') ? (
-                          // Image preview
-                          <div className={cn(
-                            "rounded-xl overflow-hidden shadow-md border-2 max-w-[300px]",
-                            msg.sender === "staff" ? "border-primary" : "border-gray-200"
-                          )}>
-                            <img 
-                              src={file.url} 
-                              alt={file.name}
-                              className="w-full h-auto object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                              onClick={() => window.open(file.url, '_blank')}
-                            />
-                            <div className={cn(
-                              "px-2 py-1.5 text-xs",
-                              msg.sender === "staff" 
-                                ? "bg-primary text-white" 
-                                : "bg-gray-100 text-gray-700"
-                            )}>
-                              <div className="flex items-center gap-1.5">
-                                <ImageIcon size={12} />
-                                <span className="truncate flex-1">{file.name}</span>
-                                <span className="text-xs opacity-75">{formatFileSize(file.size)}</span>
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          // Document file
-                          <div className={cn(
-                            "rounded-xl px-3 py-2.5 shadow-sm border-2 flex items-center gap-2 cursor-pointer hover:opacity-90 transition-opacity",
-                            msg.sender === "staff"
-                              ? "gradient-primary text-primary-foreground border-primary"
-                              : "bg-white text-gray-900 border-gray-200"
-                          )}
-                          onClick={() => window.open(file.url, '_blank')}
-                          >
-                            <File size={20} className={msg.sender === "staff" ? "text-white" : "text-gray-600"} />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate">{file.name}</p>
-                              <p className={cn(
-                                "text-xs",
-                                msg.sender === "staff" ? "text-white/80" : "text-gray-500"
-                              )}>
-                                {formatFileSize(file.size)}
-                              </p>
-                            </div>
-                            <Paperclip size={16} className={msg.sender === "staff" ? "text-white/60" : "text-gray-400"} />
-                          </div>
+            messages.map((msg, index) => {
+              const isStaff = msg.sender === "staff";
+              const prev = index > 0 ? messages[index - 1] : null;
+              const showDateDivider =
+                Boolean(msg.date_key) &&
+                (!prev?.date_key || prev.date_key !== msg.date_key);
+              return (
+                <Fragment key={msg.id}>
+                  {showDateDivider && msg.date_key && (
+                    <div className="flex justify-center py-2">
+                      <span className="text-[11px] text-muted-foreground bg-muted/90 px-3 py-1 rounded-full border border-border">
+                        {dateKeyToLabel(msg.date_key)}
+                      </span>
+                    </div>
+                  )}
+                <div
+                  className={cn("flex gap-2 items-end", isStaff ? "flex-row-reverse" : "flex-row")}
+                >
+                  <ChatParticipantAvatar
+                    imageUrl={
+                      isStaff
+                        ? conversation?.shop_logo_url
+                        : conversation?.customer_avatar_url
+                    }
+                    isStaff={isStaff}
+                    nameFallback={
+                      isStaff ? undefined : conversation?.customer_name
+                    }
+                  />
+                  <div
+                    className={cn(
+                      "flex flex-col min-w-0 max-w-[calc(100%-3rem)] sm:max-w-[min(75%,28rem)] space-y-1",
+                      isStaff ? "items-end" : "items-start"
+                    )}
+                  >
+                    {(!isStaff ||
+                      (msg.staffSendKind && msg.staffSendKind !== "unknown")) && (
+                      <div
+                        className={cn(
+                          "flex flex-wrap items-center gap-1.5",
+                          isStaff ? "flex-row-reverse" : "flex-row"
+                        )}
+                      >
+                        {!isStaff && (
+                          <span className="text-[11px] font-semibold text-muted-foreground truncate max-w-[min(12rem,45vw)]">
+                            {conversation?.customer_name?.trim() || "バイヤー"}
+                          </span>
+                        )}
+                        {isStaff && (
+                          <StaffKindBadge kind={msg.staffSendKind} />
                         )}
                       </div>
-                    ))}
-                  </div>
-                )}
+                    )}
 
-                {translatedMessages[String(msg.id)] && (
-                  <div className="bg-primary-subtle border border-primary/20 rounded-lg px-3 py-2 text-xs text-primary">
-                    {translatedMessages[String(msg.id)]}
-                  </div>
-                )}
+                    {((msg.content_kind ?? "text") !== "text" ||
+                      (msg.content && msg.content.trim())) && (
+                      <ChatMessageBody msg={msg} isStaff={isStaff} />
+                    )}
 
-                <div className={cn(
-                  "flex items-center gap-2",
-                  msg.sender === "staff" ? "justify-end" : "justify-start"
-                )}>
-                  <span className="text-muted-foreground text-xs">{msg.time}</span>
-                  {msg.sender === "customer" && (
-                    <button
-                      onClick={() => handleTranslate(msg.id, msg.content)}
-                      className="text-xs text-primary hover:text-primary-dark flex items-center gap-1 transition-colors"
-                      disabled={translating === msg.id}
+                    {msg.attachments && msg.attachments.length > 0 && (
+                      <div className="space-y-2 w-full">
+                        {msg.attachments.map((file: AttachedFile) => (
+                          <div key={file.id}>
+                            {file.type.startsWith("image/") ? (
+                              <div
+                                className={cn(
+                                  "rounded-xl overflow-hidden shadow-md border-2 max-w-[300px]",
+                                  isStaff ? "border-primary" : "border-gray-200"
+                                )}
+                              >
+                                <img
+                                  src={file.url}
+                                  alt={file.name}
+                                  className="w-full h-auto object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                                  onClick={() => window.open(file.url, "_blank")}
+                                />
+                                <div
+                                  className={cn(
+                                    "px-2 py-1.5 text-xs",
+                                    isStaff ? "bg-primary text-white" : "bg-gray-100 text-gray-700"
+                                  )}
+                                >
+                                  <div className="flex items-center gap-1.5">
+                                    <ImageIcon size={12} />
+                                    <span className="truncate flex-1">{file.name}</span>
+                                    <span className="text-xs opacity-75">{formatFileSize(file.size)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div
+                                className={cn(
+                                  "rounded-xl px-3 py-2.5 shadow-sm border-2 flex items-center gap-2 cursor-pointer hover:opacity-90 transition-opacity",
+                                  isStaff
+                                    ? "gradient-primary text-primary-foreground border-primary"
+                                    : "bg-white text-gray-900 border-gray-200"
+                                )}
+                                onClick={() => window.open(file.url, "_blank")}
+                              >
+                                <File size={20} className={isStaff ? "text-white" : "text-gray-600"} />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium truncate">{file.name}</p>
+                                  <p
+                                    className={cn(
+                                      "text-xs",
+                                      isStaff ? "text-white/80" : "text-gray-500"
+                                    )}
+                                  >
+                                    {formatFileSize(file.size)}
+                                  </p>
+                                </div>
+                                <Paperclip size={16} className={isStaff ? "text-white/60" : "text-gray-400"} />
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {translatedMessages[String(msg.id)] && (
+                      <div className="bg-primary-subtle border border-primary/20 rounded-lg px-3 py-2 text-xs text-primary max-w-full">
+                        {translatedMessages[String(msg.id)]}
+                      </div>
+                    )}
+
+                    <div
+                      className={cn(
+                        "flex items-center gap-2",
+                        isStaff ? "flex-row-reverse" : "flex-row"
+                      )}
                     >
-                      <Languages size={11} />
-                      {translating === msg.id ? "翻訳中..." : "翻訳"}
-                    </button>
-                  )}
+                      <span className="text-muted-foreground text-xs tabular-nums">
+                        {msg.datetime ?? msg.time}
+                      </span>
+                      {msg.sender === "customer" &&
+                        (msg.content_kind ?? "text") === "text" && (
+                        <button
+                          onClick={() => handleTranslate(msg.id, msg.content)}
+                          className="text-xs text-primary hover:text-primary-dark flex items-center gap-1 transition-colors"
+                          disabled={translating === msg.id}
+                        >
+                          <Languages size={11} />
+                          {translating === msg.id ? "翻訳中..." : "翻訳"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          ))
+                </Fragment>
+              );
+            })
           )}
+          <div ref={messagesEndRef} aria-hidden className="h-px w-full shrink-0" />
         </div>
 
         {/* Template Picker */}
         {showTemplates && (
           <div className="border-t border-border p-3 bg-muted/50 max-h-48 overflow-y-auto scrollbar-thin">
-            <p className="text-xs font-semibold text-muted-foreground mb-2">テンプレート選択</p>
-            <div className="space-y-2">
-              {templates.map(({ category, items }) => (
-                <div key={category}>
-                  <p className="text-xs font-medium text-primary mb-1">{category}</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {items.map((item) => (
-                      <button
-                        key={item}
-                        onClick={() => selectTemplate(item)}
-                        className="text-xs px-2.5 py-1 rounded-lg bg-card border border-border hover:border-primary hover:text-primary transition-all"
-                      >
-                        {item}
-                      </button>
-                    ))}
+            <p className="text-xs font-semibold text-muted-foreground mb-2">
+              テンプレート選択（テンプレート管理と同期）
+            </p>
+            {templatesLoading ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground py-3">
+                <Loader2 className="animate-spin size-4 shrink-0" />
+                読み込み中…
+              </div>
+            ) : groupedReplyTemplates.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-2">
+                この国向けのテンプレートがありません。テンプレート画面で追加するか、国を「全て」に設定してください。
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {groupedReplyTemplates.map(({ category, items }) => (
+                  <div key={category}>
+                    <p className="text-xs font-medium text-primary mb-1">{category}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {items.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => selectTemplate(item)}
+                          className="text-xs px-2.5 py-1 rounded-lg bg-card border border-border hover:border-primary hover:text-primary transition-all"
+                        >
+                          {item.name}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -591,7 +1059,11 @@ export default function ChatDetailPage() {
               variant="outline"
               size="sm"
               className="h-8 sm:h-7 text-xs gap-1 border-primary/30 text-primary hover:bg-primary-subtle min-h-[44px] sm:min-h-0"
-              onClick={() => setShowTemplates(!showTemplates)}
+              onClick={() => {
+                const next = !showTemplates;
+                setShowTemplates(next);
+                if (next) void loadReplyTemplates();
+              }}
             >
               <FileText size={12} />
               テンプレート
@@ -692,12 +1164,3 @@ export default function ChatDetailPage() {
     </div>
   );
 }
-
-function MessageIcon() {
-  return (
-    <div className="w-6 h-6 bg-primary-foreground/20 rounded-md flex items-center justify-center">
-      <Send size={12} className="text-primary-foreground" />
-    </div>
-  );
-}
-

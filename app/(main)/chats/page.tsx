@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
-  MessageSquare, Search, Users as UsersIcon,
-  ChevronRight, User, ShoppingCart, Bell, TrendingUp,
+  Search, Users as UsersIcon,
+  ChevronRight, User,
   CheckCircle, XCircle, AlertCircle, Loader2, RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -14,7 +14,6 @@ import { toast } from "sonner";
 
 const COUNTRIES = ["全て", "SG", "PH", "MY", "TW", "TH", "VN", "BR"];
 
-type ChatType = "buyer" | "notification" | "affiliate";
 type ChatStatus = "open" | "replied" | "closed";
 
 type ChatRow = {
@@ -28,29 +27,7 @@ type ChatRow = {
   elapsed: number;
   staff: string;
   unread: number;
-  type: ChatType;
   uiStatus: ChatStatus;
-};
-
-const chatTypeConfig = {
-  buyer: { 
-    label: "バイヤー", 
-    icon: ShoppingCart, 
-    color: "text-blue-600", 
-    bg: "bg-blue-50",
-  },
-  notification: { 
-    label: "通知", 
-    icon: Bell, 
-    color: "text-amber-600", 
-    bg: "bg-amber-50",
-  },
-  affiliate: { 
-    label: "アフィリエイト", 
-    icon: TrendingUp, 
-    color: "text-purple-600", 
-    bg: "bg-purple-50",
-  },
 };
 
 const statusConfig = {
@@ -93,7 +70,6 @@ export default function ChatsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState("全て");
-  const [selectedType, setSelectedType] = useState<ChatType | "all">("all");
   const [selectedStatus, setSelectedStatus] = useState<ChatStatus | "all">("all");
   const [search, setSearch] = useState("");
   const [selectedChats, setSelectedChats] = useState<string[]>([]);
@@ -101,7 +77,9 @@ export default function ChatsPage() {
   const itemsPerPage = 10;
 
   const loadChats = useCallback(async () => {
-    const res = await fetch("/api/chats");
+    const res = await fetch(
+      "/api/chats?exclude_chat_types=notification"
+    );
     if (!res.ok) throw new Error("Failed to load chats");
     const data = await res.json();
     const rows: ChatRow[] = (data.chats || []).map(
@@ -114,7 +92,6 @@ export default function ChatsPage() {
         elapsed: number;
         staff?: string;
         unread: number;
-        type?: ChatType;
         uiStatus?: ChatStatus;
         product?: string;
         date?: string;
@@ -129,7 +106,6 @@ export default function ChatsPage() {
         elapsed: c.elapsed,
         staff: c.staff ?? "未割当",
         unread: c.unread,
-        type: (c.type as ChatType) || "buyer",
         uiStatus: (c.uiStatus as ChatStatus) || "replied",
       })
     );
@@ -165,10 +141,9 @@ export default function ChatsPage() {
 
   const filtered = chats.filter((c) => {
     const matchCountry = selectedCountry === "全て" || c.country === selectedCountry;
-    const matchType = selectedType === "all" || c.type === selectedType;
     const matchStatus = selectedStatus === "all" || c.uiStatus === selectedStatus;
     const matchSearch = matchSearchQuery(search, c);
-    return matchCountry && matchType && matchStatus && matchSearch;
+    return matchCountry && matchStatus && matchSearch;
   });
 
   const totalPages = Math.ceil(filtered.length / itemsPerPage);
@@ -203,7 +178,7 @@ export default function ChatsPage() {
         <div>
           <h2 className="text-gray-900 font-bold text-lg">チャット管理</h2>
           <p className="text-gray-500 text-sm mt-0.5">
-            Shopee同期済みの会話一覧（API / MongoDB）
+            Shopee同期済みの会話一覧（バイヤー・アフィリエイト等。Shopee公式通知は画面上部のベルから）
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -265,42 +240,6 @@ export default function ChatsPage() {
                 {c}
               </button>
             ))}
-          </div>
-        </div>
-
-        {/* Type Filter */}
-        <div>
-          <label className="text-gray-700 text-sm font-semibold mb-2 block">チャットタイプ</label>
-          <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={() => setSelectedType("all")}
-              className={cn(
-                "px-3 py-1.5 rounded-lg text-sm font-medium transition-all border",
-                selectedType === "all"
-                  ? "bg-primary text-white border-primary"
-                  : "bg-white text-gray-700 border-gray-200 hover:border-primary/50"
-              )}
-            >
-              全て
-            </button>
-            {(Object.entries(chatTypeConfig) as [ChatType, typeof chatTypeConfig[ChatType]][]).map(([type, config]) => {
-              const Icon = config.icon;
-              return (
-                <button
-                  key={type}
-                  onClick={() => setSelectedType(type)}
-                  className={cn(
-                    "px-3 py-1.5 rounded-lg text-sm font-medium transition-all border flex items-center gap-1.5",
-                    selectedType === type
-                      ? "bg-primary text-white border-primary"
-                      : "bg-white text-gray-700 border-gray-200 hover:border-primary/50"
-                  )}
-                >
-                  <Icon size={14} />
-                  {config.label}
-                </button>
-              );
-            })}
           </div>
         </div>
 
@@ -366,7 +305,6 @@ export default function ChatsPage() {
                   />
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">国</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">タイプ</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">顧客名</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">商品</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">最終メッセージ</th>
@@ -380,15 +318,13 @@ export default function ChatsPage() {
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-16 text-center text-gray-500">
+                  <td colSpan={10} className="px-4 py-16 text-center text-gray-500">
                     <Loader2 className="animate-spin inline-block mr-2" size={20} />
                     読み込み中...
                   </td>
                 </tr>
               ) : (
               paginatedChats.map(chat => {
-                const typeConfig = chatTypeConfig[chat.type];
-                const TypeIcon = typeConfig.icon;
                 const statusInfo = statusConfig[chat.uiStatus];
                 const StatusIcon = statusInfo.icon;
                 
@@ -423,12 +359,6 @@ export default function ChatsPage() {
                       <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-primary text-white text-xs font-bold">
                         {chat.country}
                       </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className={cn("inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium", typeConfig.bg, typeConfig.color)}>
-                        <TypeIcon size={12} />
-                        {typeConfig.label}
-                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
