@@ -79,7 +79,6 @@ function ChatMessageBody({ msg, isStaff }: { msg: Message; isStaff: boolean }) {
     return (
       <div className={card}>
         {msg.sticker_card?.image_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={msg.sticker_card.image_url}
             alt="スタンプ"
@@ -97,7 +96,6 @@ function ChatMessageBody({ msg, isStaff }: { msg: Message; isStaff: boolean }) {
       <div className={card}>
         <div className="flex gap-2.5 items-start">
           {msg.item_card?.image_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={msg.item_card.image_url}
               alt=""
@@ -162,7 +160,6 @@ function ChatMessageBody({ msg, isStaff }: { msg: Message; isStaff: boolean }) {
     return (
       <div className={card}>
         {u ? (
-          // eslint-disable-next-line @next/next/no-img-element
           <img src={u} alt="画像" className="max-w-[min(280px,85vw)] rounded-md object-contain" />
         ) : (
           <span className="text-sm">画像</span>
@@ -314,7 +311,6 @@ function ChatParticipantAvatar({
       aria-hidden
     >
       {show ? (
-        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={imageUrl as string}
           alt=""
