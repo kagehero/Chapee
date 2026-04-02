@@ -1,9 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useState, Suspense } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  Suspense,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Bell, Loader2, Settings, ExternalLink } from "lucide-react";
+import {
+  Bell,
+  Loader2,
+  Settings,
+  ExternalLink,
+  ChevronDown,
+} from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -11,15 +23,141 @@ import {
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-type NotificationRow = {
+
+export type ShopCenterNotifItem = {
   id: string;
-  country: string;
-  customer: string;
-  lastMessage: string;
-  time: string;
-  date: string;
-  unread: number;
+  title: string;
+  content: string;
+  createdAt?: Date;
+  url?: string;
 };
+
+/** Shopee get_shop_notification のレスポンス（response 形の揺れに対応） */
+export function parseShopNotificationPayload(
+  json: Record<string, unknown>
+): {
+  items: ShopCenterNotifItem[];
+  nextCursor?: string | number;
+  shopId?: number;
+} {
+  const shopId =
+    typeof json.shop_id === "number"
+      ? json.shop_id
+      : typeof json.shop_id === "string"
+        ? Number(json.shop_id)
+        : undefined;
+
+  const root = json;
+  const resp = (root.response as Record<string, unknown>) ?? root;
+
+  const nextCursor =
+    (resp.cursor as string | number | undefined) ??
+    (root.cursor as string | number | undefined);
+
+  const list: unknown[] = [];
+
+  const arr =
+    resp.notification_list ??
+    resp.noti_list ??
+    resp.notification_list_v2 ??
+    resp.list;
+  if (Array.isArray(arr)) {
+    list.push(...arr);
+  } else if (resp.data != null) {
+    const d = resp.data;
+    if (Array.isArray(d)) list.push(...d);
+    else if (typeof d === "object") list.push(d);
+  }
+
+  const items: ShopCenterNotifItem[] = list.map((raw, idx) => {
+    const o = raw as Record<string, unknown>;
+    const id = String(
+      o.notification_id ??
+        o.noti_id ??
+        o.id ??
+        `n-${idx}-${String(o.title ?? o.create_time ?? "")}`
+    );
+    const title = String(o.title ?? o.subject ?? "通知").trim() || "通知";
+    const content = String(
+      o.content ?? o.message ?? o.body ?? o.text ?? ""
+    ).trim();
+    const urlRaw = o.url ?? o.redirect_url ?? o.link;
+    const url =
+      typeof urlRaw === "string" && /^https?:\/\//i.test(urlRaw.trim())
+        ? urlRaw.trim()
+        : undefined;
+
+    let createdAt: Date | undefined;
+    const ts = o.create_time ?? o.created_time ?? o.timestamp ?? o.time;
+    if (typeof ts === "number" && Number.isFinite(ts)) {
+      createdAt = new Date(ts > 1e12 ? ts : ts * 1000);
+    } else if (typeof ts === "string" && /^\d+$/.test(ts)) {
+      const n = Number(ts);
+      createdAt = new Date(n > 1e12 ? n : n * 1000);
+    }
+
+    return { id, title, content, createdAt, url };
+  });
+
+  return {
+    items,
+    nextCursor:
+      nextCursor !== undefined && nextCursor !== null && nextCursor !== ""
+        ? nextCursor
+        : undefined,
+    shopId: Number.isFinite(shopId) ? shopId : undefined,
+  };
+}
+
+function formatNotifTime(d?: Date): string {
+  if (!d || Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("ja-JP", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** Shopee が返す `<b>...</b>` を除去し、太字スタイルで表示 */
+function renderShopNotificationContent(html: string): ReactNode {
+  if (!html) return null;
+  const parts: React.ReactNode[] = [];
+  let remaining = html;
+  let key = 0;
+  const openRe = /<b>/gi;
+  const closeRe = /<\/b>/gi;
+
+  while (remaining.length) {
+    openRe.lastIndex = 0;
+    const openMatch = openRe.exec(remaining);
+    if (!openMatch || openMatch.index === undefined) {
+      parts.push(remaining);
+      break;
+    }
+    const start = openMatch.index;
+    if (start > 0) {
+      parts.push(remaining.slice(0, start));
+    }
+    const afterOpen = remaining.slice(start + openMatch[0].length);
+    closeRe.lastIndex = 0;
+    const closeMatch = closeRe.exec(afterOpen);
+    if (!closeMatch || closeMatch.index === undefined) {
+      parts.push(remaining.slice(start));
+      break;
+    }
+    const boldText = afterOpen.slice(0, closeMatch.index);
+    parts.push(
+      <strong key={`b-${key++}`} className="font-semibold text-foreground">
+        {boldText}
+      </strong>
+    );
+    remaining = afterOpen.slice(closeMatch.index + closeMatch[0].length);
+  }
+
+  return <>{parts}</>;
+}
 
 function HeaderNotificationCenterInner() {
   const router = useRouter();
@@ -27,40 +165,73 @@ function HeaderNotificationCenterInner() {
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [rows, setRows] = useState<NotificationRow[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [items, setItems] = useState<ShopCenterNotifItem[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | number | undefined>();
+  const [shopLabel, setShopLabel] = useState<string | null>(null);
+
+  const fetchPage = useCallback(
+    async (opts: { cursor?: string | number; append: boolean }) => {
+      const params = new URLSearchParams();
+      params.set("page_size", "20");
+      if (opts.cursor != null && String(opts.cursor).length > 0) {
+        params.set("cursor", String(opts.cursor));
+      }
+      const res = await fetch(`/api/shopee/shop-notifications?${params}`);
+      const json = (await res.json()) as Record<string, unknown>;
+      if (!res.ok) {
+        const msg =
+          typeof json.error === "string"
+            ? json.error
+            : "通知の取得に失敗しました";
+        throw new Error(msg);
+      }
+      const parsed = parseShopNotificationPayload(json);
+      if (opts.append) {
+        if (parsed.items.length === 0) {
+          setNextCursor(undefined);
+        } else {
+          setItems((prev) => [...prev, ...parsed.items]);
+          setNextCursor(parsed.nextCursor);
+        }
+      } else {
+        setItems(parsed.items);
+        setNextCursor(parsed.nextCursor);
+      }
+      if (parsed.shopId != null) {
+        setShopLabel(`Shop ${parsed.shopId}`);
+      }
+    },
+    []
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
+    setNextCursor(undefined);
     try {
-      const res = await fetch("/api/chats?type=notification&limit=40");
-      if (!res.ok) throw new Error("failed");
-      const data = await res.json();
-      const list = (data.chats || []) as Array<{
-        id: string;
-        country: string;
-        customer: string;
-        lastMessage: string;
-        time: string;
-        date: string;
-        unread: number;
-      }>;
-      setRows(
-        list.map((c) => ({
-          id: String(c.id),
-          country: c.country,
-          customer: c.customer,
-          lastMessage: c.lastMessage,
-          time: c.time,
-          date: c.date ?? "",
-          unread: c.unread ?? 0,
-        }))
-      );
-    } catch {
-      setRows([]);
+      await fetchPage({ append: false });
+    } catch (e) {
+      setItems([]);
+      setError(e instanceof Error ? e.message : "取得に失敗しました");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchPage]);
+
+  const loadMore = useCallback(async () => {
+    if (nextCursor == null || String(nextCursor).length === 0) return;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      await fetchPage({ cursor: nextCursor, append: true });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "読み込みに失敗しました");
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [fetchPage, nextCursor]);
 
   useEffect(() => {
     if (searchParams.get("focus") === "notifications") {
@@ -73,11 +244,7 @@ function HeaderNotificationCenterInner() {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    if (open) void load();
-  }, [open, load]);
-
-  const unreadTotal = rows.reduce((s, r) => s + (r.unread > 0 ? r.unread : 0), 0);
+  const hasIndicator = items.length > 0;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -85,11 +252,11 @@ function HeaderNotificationCenterInner() {
         <button
           type="button"
           className="relative p-2.5 rounded-xl hover:bg-gray-100 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-          aria-label="Shopee通知"
+          aria-label="Shopeeセンター通知"
         >
           <Bell size={20} className="text-gray-600" />
-          {unreadTotal > 0 && (
-            <span className="absolute top-2 right-2 min-w-[8px] h-2 px-0.5 rounded-full bg-red-500 border-2 border-white" />
+          {hasIndicator && (
+            <span className="absolute top-2 right-2 min-w-[8px] h-2 rounded-full bg-red-500 border-2 border-white" />
           )}
         </button>
       </PopoverTrigger>
@@ -99,10 +266,19 @@ function HeaderNotificationCenterInner() {
         sideOffset={8}
       >
         <div className="px-3 py-2.5 border-b border-border flex items-center justify-between gap-2 bg-muted/40">
-          <p className="text-sm font-semibold text-foreground">Shopee通知</p>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-foreground">
+              Seller Center 通知
+            </p>
+            {shopLabel && (
+              <p className="text-[10px] text-muted-foreground truncate">
+                {shopLabel}
+              </p>
+            )}
+          </div>
           <Link
             href="/settings#notification-settings"
-            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline shrink-0"
             onClick={() => setOpen(false)}
           >
             <Settings size={12} />
@@ -114,66 +290,85 @@ function HeaderNotificationCenterInner() {
             <div className="flex items-center justify-center py-12 text-muted-foreground">
               <Loader2 className="animate-spin h-6 w-6" />
             </div>
-          ) : rows.length === 0 ? (
-            <p className="text-sm text-muted-foreground px-3 py-8 text-center">
-              通知スレッドはありません。同期後、Shopee公式通知などがここに表示されます。
+          ) : error ? (
+            <p className="text-sm text-destructive px-3 py-8 text-center">
+              {error}
+            </p>
+          ) : items.length === 0 ? (
+            <p className="text-sm text-muted-foreground px-3 py-8 text-center leading-relaxed">
+              Seller Center の通知はありません。Shopee 連携とアプリ権限を確認してください。
             </p>
           ) : (
             <ul className="divide-y divide-border">
-              {rows.map((r) => (
+              {items.map((r) => (
                 <li key={r.id}>
-                  <button
-                    type="button"
-                    className="w-full text-left px-3 py-2.5 hover:bg-muted/80 transition-colors"
-                    onClick={() => {
-                      setOpen(false);
-                      router.push(`/chats/${encodeURIComponent(r.id)}`);
-                    }}
-                  >
+                  <div className="px-3 py-2.5 hover:bg-muted/80 transition-colors">
                     <div className="flex items-start justify-between gap-2">
-                      <span className="text-xs font-medium text-muted-foreground tabular-nums shrink-0">
-                        {r.country}
-                      </span>
-                      {r.unread > 0 && (
-                        <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">
-                          {r.unread}
+                      <p className="text-sm font-medium text-foreground line-clamp-2 min-w-0">
+                        {r.title}
+                      </p>
+                      {r.createdAt && (
+                        <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+                          {formatNotifTime(r.createdAt)}
                         </span>
                       )}
                     </div>
-                    <p className="text-sm font-medium text-foreground truncate mt-0.5">
-                      {r.customer}
-                    </p>
-                    <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
-                      {r.lastMessage}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      {r.date} {r.time}
-                    </p>
-                  </button>
+                    {r.content ? (
+                      <p className="text-xs text-muted-foreground line-clamp-3 mt-1 [&_strong]:text-foreground">
+                        {renderShopNotificationContent(r.content)}
+                      </p>
+                    ) : null}
+                    {r.url ? (
+                      <a
+                        href={r.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-primary mt-2 hover:underline"
+                        onClick={() => setOpen(false)}
+                      >
+                        詳細を開く
+                        <ExternalLink size={10} />
+                      </a>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>
           )}
         </ScrollArea>
-        {rows.length > 0 && (
-          <div className="px-3 py-2 border-t border-border bg-muted/20">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full text-xs h-8"
-              asChild
-            >
+        <div className="px-3 py-2 border-t border-border bg-muted/20 space-y-1.5">
+            {items.length > 0 &&
+              nextCursor != null &&
+              String(nextCursor).length > 0 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs h-8"
+                  disabled={loadingMore}
+                  onClick={() => void loadMore()}
+                >
+                  {loadingMore ? (
+                    <Loader2 className="animate-spin h-4 w-4" />
+                  ) : (
+                    <>
+                      さらに読み込む
+                      <ChevronDown size={12} className="ml-1" />
+                    </>
+                  )}
+                </Button>
+              )}
+            <Button variant="ghost" size="sm" className="w-full text-xs h-8" asChild>
               <Link
                 href="/chats"
                 className="inline-flex items-center justify-center gap-1"
                 onClick={() => setOpen(false)}
               >
-                バイヤーチャット一覧へ
+                チャット管理へ
                 <ExternalLink size={12} />
               </Link>
             </Button>
           </div>
-        )}
       </PopoverContent>
     </Popover>
   );

@@ -2,7 +2,10 @@ import crypto from "crypto";
 
 const PARTNER_ID = parseInt(process.env.SHOPEE_PARTNER_ID || "0");
 const PARTNER_KEY = process.env.SHOPEE_PARTNER_KEY || "";
-const BASE_URL = "https://partner.shopeemobile.com";
+/** 例: 中国など別リージョンは Shopee ドキュメントのホストを指定 */
+const BASE_URL = (
+  process.env.SHOPEE_PARTNER_API_HOST || "https://partner.shopeemobile.com"
+).replace(/\/$/, "");
 
 /**
  * Generate HMAC-SHA256 signature for Shopee API requests
@@ -134,6 +137,59 @@ export async function getShopInfo(accessToken: string, shopId: number) {
   });
 
   const data = await response.json();
+
+  if (data.error) {
+    throw new Error(`Shopee API Error: ${data.message || data.error}`);
+  }
+
+  return data;
+}
+
+/**
+ * Seller Center の通知一覧（v2.shop.get_shop_notification）
+ * @see https://open.shopee.com/documents/v2/v2.shop.get_shop_notification
+ *
+ * Shopee 公式 SDK は本 API を **GET**（クエリに page_size / cursor）で呼び出します。
+ * POST だと環境によって 404 HTML が返ることがあるため GET のみ使用します。
+ */
+export async function getShopNotification(
+  accessToken: string,
+  shopId: number,
+  params?: {
+    /** 前ページの cursor（notification_id）。未指定で最新から */
+    cursor?: number | string;
+    /** 1〜50。省略時は 10 */
+    page_size?: number;
+  }
+) {
+  const path = "/api/v2/shop/get_shop_notification";
+  const timestamp = Math.floor(Date.now() / 1000);
+  const sign = generateSignature(path, timestamp, accessToken, shopId);
+
+  const pageSize =
+    params?.page_size == null
+      ? 10
+      : Math.min(50, Math.max(1, Math.floor(params.page_size)));
+
+  let url =
+    `${BASE_URL}${path}?` +
+    `partner_id=${PARTNER_ID}&` +
+    `timestamp=${timestamp}&` +
+    `access_token=${encodeURIComponent(accessToken)}&` +
+    `shop_id=${shopId}&` +
+    `sign=${sign}` +
+    `&page_size=${pageSize}`;
+
+  if (params?.cursor != null && String(params.cursor).length > 0) {
+    url += `&cursor=${encodeURIComponent(String(params.cursor))}`;
+  }
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  });
+
+  const data = await parseShopeeResponseJson(response, "get_shop_notification");
 
   if (data.error) {
     throw new Error(`Shopee API Error: ${data.message || data.error}`);
