@@ -11,11 +11,43 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { useNotificationSounds } from "@/lib/useNotificationSounds";
+import { getNotificationSoundsEnabled } from "@/lib/notification-sound-settings";
 
 const COUNTRIES = ["全て", "SG", "PH", "MY", "TW", "TH", "VN", "BR"];
 
 /** ダッシュボード表示中の自動同期間隔（ミリ秒） */
 const DASHBOARD_AUTO_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+
+type SyncResultDelta = {
+  new_conversation_ids?: string[];
+  new_notification_ids?: string[];
+};
+
+type SyncApiResultRow = {
+  shop_id: number;
+  error?: string;
+  delta?: SyncResultDelta;
+};
+
+function playSoundsForSyncDelta(
+  results: SyncApiResultRow[] | undefined,
+  playMessageSound: () => void,
+  playOrderSound: () => void
+): void {
+  if (!getNotificationSoundsEnabled() || !results?.length) return;
+  let hasNewChat = false;
+  let hasNewNotif = false;
+  for (const r of results) {
+    if (r.error) continue;
+    const d = r.delta;
+    if (!d) continue;
+    if (d.new_conversation_ids?.length) hasNewChat = true;
+    if (d.new_notification_ids?.length) hasNewNotif = true;
+  }
+  if (hasNewChat) playMessageSound();
+  if (hasNewNotif) playOrderSound();
+}
 
 // チャットタイプ定義
 type ChatType = "buyer" | "notification" | "affiliate";
@@ -65,6 +97,7 @@ type SyncStatus = "idle" | "syncing" | "success" | "error";
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { playMessageSound, playOrderSound } = useNotificationSounds();
   const [loading, setLoading] = useState(true);
   /** User clicked「データ更新」 */
   const [manualSyncing, setManualSyncing] = useState(false);
@@ -112,8 +145,12 @@ export default function DashboardPage() {
     setSyncError(null);
     try {
       const res = await fetch("/api/shopee/sync", { method: "POST" });
-      const data = await res.json();
+      const data = (await res.json()) as {
+        error?: string;
+        results?: SyncApiResultRow[];
+      };
       if (!res.ok) throw new Error(data.error || "同期失敗");
+      playSoundsForSyncDelta(data.results, playMessageSound, playOrderSound);
       setSyncStatus("success");
       setLastSynced(new Date());
       setChats(await fetchChats());
@@ -125,7 +162,7 @@ export default function DashboardPage() {
       setBackgroundSyncing(false);
       backgroundSyncInFlightRef.current = false;
     }
-  }, [fetchChats]);
+  }, [fetchChats, playMessageSound, playOrderSound]);
 
   // Redirect URL が Google 等のとき: アドレスバーの code / shop_id を付けて /dashboard を開いた場合の救済
   useEffect(() => {
@@ -204,8 +241,12 @@ export default function DashboardPage() {
     setSyncError(null);
     try {
       const res = await fetch("/api/shopee/sync", { method: "POST" });
-      const data = await res.json();
+      const data = (await res.json()) as {
+        error?: string;
+        results?: SyncApiResultRow[];
+      };
       if (!res.ok) throw new Error(data.error || "同期に失敗しました");
+      playSoundsForSyncDelta(data.results, playMessageSound, playOrderSound);
       setSyncStatus("success");
       setLastSynced(new Date());
       toast.success("Shopeeから会話を同期しました");

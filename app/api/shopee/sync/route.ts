@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getConversations } from "@/lib/shopee-api";
+import { getConversations, getShopNotification } from "@/lib/shopee-api";
 import { getValidToken, getConnectedShops } from "@/lib/shopee-token";
 import { getCollection } from "@/lib/mongodb";
+import {
+  dedupeShopNotificationItems,
+  parseShopNotificationPayload,
+} from "@/lib/shopee-shop-notification-parse";
+import {
+  buildConvLastTsMap,
+  computeNewConversationActivity,
+  computeNewNotificationIds,
+  getSyncSnapshot,
+  saveSyncSnapshot,
+} from "@/lib/sync-snapshot";
 import {
   extractBuyerAvatarFromShopee,
   inferChatTypeFromShopee,
@@ -132,6 +143,37 @@ export async function GET(request: NextRequest) {
           `[Sync] Found ${allConversations.length} conversations for shop ${shop.shop_id} (${page} page(s))`
         );
 
+        const prevSnapshot = await getSyncSnapshot(shop.shop_id);
+        const newConversationIds = computeNewConversationActivity(
+          prevSnapshot,
+          allConversations
+        );
+
+        let newNotificationIds: string[] = [];
+        let notifIdsForSnapshot: string[] = prevSnapshot?.notification_ids ?? [];
+        try {
+          const notifRaw = await getShopNotification(accessToken, shop.shop_id, {
+            page_size: 25,
+          });
+          const notifJson = {
+            shop_id: shop.shop_id,
+            ...(notifRaw as Record<string, unknown>),
+          };
+          const parsed = parseShopNotificationPayload(notifJson);
+          notifIdsForSnapshot = dedupeShopNotificationItems(parsed.items).map(
+            (i) => i.id
+          );
+          newNotificationIds = computeNewNotificationIds(
+            prevSnapshot?.notification_ids,
+            notifIdsForSnapshot
+          );
+        } catch (e) {
+          console.warn(
+            `[Sync] get_shop_notification for delta (shop ${shop.shop_id}):`,
+            e
+          );
+        }
+
         let synced = 0;
 
         for (const conv of allConversations) {
@@ -181,11 +223,25 @@ export async function GET(request: NextRequest) {
 
         console.log(`[Sync] Synced ${synced} conversations to database`);
 
+        try {
+          await saveSyncSnapshot(
+            shop.shop_id,
+            buildConvLastTsMap(allConversations),
+            notifIdsForSnapshot
+          );
+        } catch (e) {
+          console.warn(`[Sync] save snapshot shop ${shop.shop_id}:`, e);
+        }
+
         results.push({
           shop_id: shop.shop_id,
           country: shop.country,
           synced,
           total: allConversations.length,
+          delta: {
+            new_conversation_ids: newConversationIds,
+            new_notification_ids: newNotificationIds,
+          },
         });
       } catch (error) {
         console.error(`[Sync] Failed to sync shop ${shop.shop_id}:`, error);
