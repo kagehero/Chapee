@@ -44,8 +44,6 @@ export async function GET(request: NextRequest) {
         : {}),
     });
 
-    console.log(data);
-
     return NextResponse.json({ shop_id: shopId, ...data });
   } catch (error) {
     console.error("[shop-notifications]", error);

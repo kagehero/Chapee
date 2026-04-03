@@ -480,11 +480,14 @@ export async function fetchAllConversationMessages(
 
 /**
  * Send message to customer
+ *
+ * Shopee v2.sellerchat.send_message は conversation_id ではなく to_id + message_type + content を要求する。
+ * @see https://open.shopee.com/documents/v2/v2.sellerchat.send_message
  */
 export async function sendMessage(
   accessToken: string,
   shopId: number,
-  conversationId: string,
+  toId: number,
   message: string
 ) {
   const path = "/api/v2/sellerchat/send_message";
@@ -495,7 +498,7 @@ export async function sendMessage(
     `${BASE_URL}${path}?` +
     `partner_id=${PARTNER_ID}&` +
     `timestamp=${timestamp}&` +
-    `access_token=${accessToken}&` +
+    `access_token=${encodeURIComponent(accessToken)}&` +
     `shop_id=${shopId}&` +
     `sign=${sign}`;
 
@@ -503,15 +506,18 @@ export async function sendMessage(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      conversation_id: conversationId,
-      message,
+      to_id: toId,
+      message_type: "text",
+      content: { text: message },
     }),
   });
 
-  const data = await response.json();
+  const data = await parseShopeeResponseJson(response, "send_message");
 
   if (data.error) {
-    throw new Error(`Shopee API Error: ${data.message || data.error}`);
+    throw new Error(
+      `Shopee API Error: ${String(data.message ?? data.error)}`
+    );
   }
 
   return data;

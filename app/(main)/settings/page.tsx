@@ -22,6 +22,10 @@ import {
   getNotificationSoundsEnabled,
   setNotificationSoundsEnabled,
 } from "@/lib/notification-sound-settings";
+import {
+  dispatchShopNotificationsRefresh,
+  sumNewNotificationIdsFromSyncResults,
+} from "@/lib/chapee-shop-notifications-events";
 
 type TranslationProvider = "deepl" | "google";
 
@@ -225,7 +229,16 @@ export default function SettingsPage() {
       const data = await res.json();
       
       if (!res.ok) throw new Error(data.error || "同期に失敗しました");
-      
+
+      dispatchShopNotificationsRefresh({
+        newNotificationIdsTotal: sumNewNotificationIdsFromSyncResults(
+          data.results as Array<{
+            error?: string;
+            delta?: { new_notification_ids?: string[] };
+          }>
+        ),
+      });
+
       const totalSynced = data.results.reduce((sum: number, r: { synced?: number }) => sum + (r.synced || 0), 0);
       toast.success(`${totalSynced}件の会話を同期しました`);
     } catch (error) {

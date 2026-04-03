@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -11,8 +11,48 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { useNotificationSounds } from "@/lib/useNotificationSounds";
+import { getNotificationSoundsEnabled } from "@/lib/notification-sound-settings";
+import { StaffSendKindPill, type LastStaffSendKind } from "@/components/StaffSendKindPill";
+import {
+  dispatchShopNotificationsRefresh,
+  sumNewNotificationIdsFromSyncResults,
+} from "@/lib/chapee-shop-notifications-events";
 
 const COUNTRIES = ["全て", "SG", "PH", "MY", "TW", "TH", "VN", "BR"];
+
+/** ダッシュボード表示中の自動同期間隔（ミリ秒） */
+const DASHBOARD_AUTO_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+
+type SyncResultDelta = {
+  new_conversation_ids?: string[];
+  new_notification_ids?: string[];
+};
+
+type SyncApiResultRow = {
+  shop_id: number;
+  error?: string;
+  delta?: SyncResultDelta;
+};
+
+function playSoundsForSyncDelta(
+  results: SyncApiResultRow[] | undefined,
+  playMessageSound: () => void,
+  playOrderSound: () => void
+): void {
+  if (!getNotificationSoundsEnabled() || !results?.length) return;
+  let hasNewChat = false;
+  let hasNewNotif = false;
+  for (const r of results) {
+    if (r.error) continue;
+    const d = r.delta;
+    if (!d) continue;
+    if (d.new_conversation_ids?.length) hasNewChat = true;
+    if (d.new_notification_ids?.length) hasNewNotif = true;
+  }
+  if (hasNewChat) playMessageSound();
+  if (hasNewNotif) playOrderSound();
+}
 
 // チャットタイプ定義
 type ChatType = "buyer" | "notification" | "affiliate";
@@ -56,12 +96,14 @@ type Chat = {
   pinned: boolean;
   status: string;
   type?: ChatType;
+  last_staff_send_kind?: LastStaffSendKind | null;
 };
 
 type SyncStatus = "idle" | "syncing" | "success" | "error";
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { playMessageSound, playOrderSound } = useNotificationSounds();
   const [loading, setLoading] = useState(true);
   /** User clicked「データ更新」 */
   const [manualSyncing, setManualSyncing] = useState(false);
@@ -98,6 +140,7 @@ export default function DashboardPage() {
     return (data.chats || []).map((chat: Chat) => ({
       ...chat,
       type: chat.type || ("buyer" as ChatType),
+      last_staff_send_kind: chat.last_staff_send_kind ?? null,
     }));
   }, []);
 
@@ -109,8 +152,17 @@ export default function DashboardPage() {
     setSyncError(null);
     try {
       const res = await fetch("/api/shopee/sync", { method: "POST" });
-      const data = await res.json();
+      const data = (await res.json()) as {
+        error?: string;
+        results?: SyncApiResultRow[];
+      };
       if (!res.ok) throw new Error(data.error || "同期失敗");
+      playSoundsForSyncDelta(data.results, playMessageSound, playOrderSound);
+      dispatchShopNotificationsRefresh({
+        newNotificationIdsTotal: sumNewNotificationIdsFromSyncResults(
+          data.results
+        ),
+      });
       setSyncStatus("success");
       setLastSynced(new Date());
       setChats(await fetchChats());
@@ -122,7 +174,7 @@ export default function DashboardPage() {
       setBackgroundSyncing(false);
       backgroundSyncInFlightRef.current = false;
     }
-  }, [fetchChats]);
+  }, [fetchChats, playMessageSound, playOrderSound]);
 
   // Redirect URL が Google 等のとき: アドレスバーの code / shop_id を付けて /dashboard を開いた場合の救済
   useEffect(() => {
@@ -186,14 +238,32 @@ export default function DashboardPage() {
     };
   }, [fetchChats, runBackgroundSync]);
 
+  // 10分ごとに Shopee へ同期（このページを開いたままのとき。タブが非表示ならスキップ）
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void runBackgroundSync();
+    }, DASHBOARD_AUTO_SYNC_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [runBackgroundSync]);
+
   const handleSync = async () => {
     setManualSyncing(true);
     setSyncStatus("syncing");
     setSyncError(null);
     try {
       const res = await fetch("/api/shopee/sync", { method: "POST" });
-      const data = await res.json();
+      const data = (await res.json()) as {
+        error?: string;
+        results?: SyncApiResultRow[];
+      };
       if (!res.ok) throw new Error(data.error || "同期に失敗しました");
+      playSoundsForSyncDelta(data.results, playMessageSound, playOrderSound);
+      dispatchShopNotificationsRefresh({
+        newNotificationIdsTotal: sumNewNotificationIdsFromSyncResults(
+          data.results
+        ),
+      });
       setSyncStatus("success");
       setLastSynced(new Date());
       toast.success("Shopeeから会話を同期しました");
@@ -213,11 +283,28 @@ export default function DashboardPage() {
   const notificationChats = chats.filter(c => c.type === "notification");
   const affiliateChats = chats.filter(c => c.type === "affiliate");
 
+  const totalUnreadMessages = useMemo(
+    () => chats.reduce((s, c) => s + Math.max(0, c.unread), 0),
+    [chats]
+  );
+  const unreadConversationCount = useMemo(
+    () => chats.filter((c) => c.unread > 0).length,
+    [chats]
+  );
+  const chatsSortedUnreadFirst = useMemo(() => {
+    return [...chats].sort((a, b) => {
+      const ua = a.unread > 0 ? 1 : 0;
+      const ub = b.unread > 0 ? 1 : 0;
+      if (ua !== ub) return ub - ua;
+      return 0;
+    });
+  }, [chats]);
+
   const stats = [
     { label: "バイヤーチャット", value: buyerChats.length, icon: ShoppingCart, color: "text-blue-600", bg: "bg-blue-50 border-blue-200" },
     { label: "Shopee通知", value: notificationChats.length, icon: Bell, color: "text-amber-600", bg: "bg-amber-50 border-amber-200" },
     { label: "アフィリエイト", value: affiliateChats.length, icon: TrendingUp, color: "text-purple-600", bg: "bg-purple-50 border-purple-200" },
-    { label: "未返信合計", value: chats.filter(c => c.unread > 0).length, icon: AlertCircle, color: "text-red-600", bg: "bg-red-50 border-red-200" },
+    { label: "未読メッセージ", value: totalUnreadMessages, icon: AlertCircle, color: "text-red-600", bg: "bg-red-50 border-red-200" },
   ];
 
   return (
@@ -275,6 +362,28 @@ export default function DashboardPage() {
         </Button>
       </div>
 
+      {totalUnreadMessages > 0 && (
+        <div className="rounded-2xl border border-red-200 bg-red-50/90 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-start gap-2 text-red-950 min-w-0">
+            <AlertCircle className="shrink-0 mt-0.5" size={20} />
+            <div>
+              <p className="font-bold text-sm">未読メッセージがあります</p>
+              <p className="text-xs text-red-900/90 mt-0.5">
+                未読会話 {unreadConversationCount} 件 · 未読合計 {totalUnreadMessages} 通（一覧では未読が先頭です）
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            className="shrink-0 bg-red-600 hover:bg-red-700 text-white"
+            onClick={() => router.push("/chats?unread_only=1")}
+          >
+            未読一覧へ
+          </Button>
+        </div>
+      )}
+
       {/* チャットタイプ別統計カード */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map(({ label, value, icon: Icon, color, bg }, index) => (
@@ -285,6 +394,10 @@ export default function DashboardPage() {
             onClick={() => {
               if (label === "Shopee通知") {
                 router.push("/chats?focus=notifications");
+                return;
+              }
+              if (label === "未読メッセージ") {
+                router.push("/chats?unread_only=1");
                 return;
               }
               if (label === "バイヤーチャット" || label === "アフィリエイト") {
@@ -322,10 +435,20 @@ export default function DashboardPage() {
           {COUNTRIES.filter(c => c !== "全て").map((country) => {
             const countryChats = chats.filter(c => c.country === country);
             const unreadCount = countryChats.filter(c => c.unread > 0).length;
+            const countryUnreadMsgs = countryChats.reduce(
+              (s, c) => s + Math.max(0, c.unread),
+              0
+            );
             return (
               <button
                 key={country}
-                onClick={() => router.push(`/chats?country=${country}`)}
+                onClick={() =>
+                  router.push(
+                    unreadCount > 0
+                      ? `/chats?country=${country}&unread_only=1`
+                      : `/chats?country=${country}`
+                  )
+                }
                 className="p-4 rounded-xl border-2 border-gray-200 hover:border-primary hover:bg-primary/5 transition-all group"
               >
                 <div className="text-center">
@@ -337,9 +460,11 @@ export default function DashboardPage() {
                   {/* Fixed height area for unread badge */}
                   <div className="mt-2 h-6 flex items-center justify-center">
                     {unreadCount > 0 ? (
-                      <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 border border-red-200">
-                        <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>
-                        <span className="text-xs font-semibold text-red-600">{unreadCount}件未読</span>
+                      <div className="inline-flex flex-col items-center gap-0.5 px-2 py-0.5 rounded-lg bg-red-50 border border-red-200">
+                        <span className="text-xs font-bold text-red-700 tabular-nums">
+                          {countryUnreadMsgs} 通未読
+                        </span>
+                        <span className="text-[10px] text-red-600/90">{unreadCount} 会話</span>
                       </div>
                     ) : (
                       <div className="h-6"></div>
@@ -406,15 +531,18 @@ export default function DashboardPage() {
               </div>
             </div>
           ) : (
-            // 最新5件のみ表示（ダッシュボードは概要）
-            chats.slice(0, 5).map((chat, index) => {
+            // 未読優先で最大5件（ダッシュボードは概要）
+            chatsSortedUnreadFirst.slice(0, 5).map((chat, index) => {
               const typeConfig = chatTypeConfig[chat.type || "buyer"];
               const TypeIcon = typeConfig.icon;
               return (
                 <div
                   key={chat.id}
                   onClick={() => router.push(`/chats/${chat.id}`)}
-                  className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer transition-all group"
+                  className={cn(
+                    "flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer transition-all group",
+                    chat.unread > 0 && "bg-red-50/40 border-l-4 border-l-red-500"
+                  )}
                   style={{ animationDelay: `${index * 30}ms` }}
                 >
                   {/* Country Badge */}
@@ -435,10 +563,11 @@ export default function DashboardPage() {
                         <span>{typeConfig.label}</span>
                       </div>
                       {chat.unread > 0 && (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-red-500 text-white font-semibold">
-                          {chat.unread}
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-red-600 text-white font-bold tabular-nums">
+                          未読 {chat.unread}
                         </span>
                       )}
+                      <StaffSendKindPill kind={chat.last_staff_send_kind} />
                     </div>
                     <p className="text-gray-500 text-xs truncate">{chat.lastMessage}</p>
                   </div>

@@ -1,6 +1,7 @@
 import type { Filter } from "mongodb";
 import { NextRequest, NextResponse } from "next/server";
 import { getCollection } from "@/lib/mongodb";
+import { lastStaffKindFromLog } from "@/lib/staff-message-kind";
 
 type ChatType = "buyer" | "notification" | "affiliate";
 
@@ -15,6 +16,9 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get("type");
     const excludeChatTypesRaw = searchParams.get("exclude_chat_types");
     const searchQuery = searchParams.get("search")?.trim() ?? "";
+    const unreadOnly =
+      searchParams.get("unread_only") === "1" ||
+      searchParams.get("unread_only") === "true";
 
     const limitRaw = parseInt(searchParams.get("limit") ?? "500", 10);
     const limit = Math.min(500, Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 500));
@@ -35,6 +39,7 @@ export async function GET(request: NextRequest) {
       assigned_staff?: string;
       created_at: Date;
       updated_at: Date;
+      staff_message_kind_log?: { id: string; kind: string }[];
     }>("shopee_conversations");
 
     type ConvDoc = {
@@ -53,6 +58,7 @@ export async function GET(request: NextRequest) {
       assigned_staff?: string;
       created_at: Date;
       updated_at: Date;
+      staff_message_kind_log?: { id: string; kind: string }[];
     };
 
     const filterDoc: Filter<ConvDoc> = {};
@@ -77,11 +83,23 @@ export async function GET(request: NextRequest) {
       if (exclude.length) filterDoc.chat_type = { $nin: exclude };
     }
 
+    if (unreadOnly) {
+      filterDoc.unread_count = { $gt: 0 };
+    }
+
     const conversations = await col
       .find(filterDoc)
       .sort({ last_message_time: -1 })
       .limit(limit)
       .toArray();
+
+    /** 未読優先 → その後は最新アクティビティ順 */
+    conversations.sort((a, b) => {
+      const ua = a.unread_count > 0 ? 1 : 0;
+      const ub = b.unread_count > 0 ? 1 : 0;
+      if (ua !== ub) return ub - ua;
+      return b.last_message_time.getTime() - a.last_message_time.getTime();
+    });
 
     const now = Date.now();
     let chats = conversations.map((conv) => {
@@ -94,6 +112,8 @@ export async function GET(request: NextRequest) {
           : conv.unread_count > 0
             ? "open"
             : "replied";
+
+      const lastKind = lastStaffKindFromLog(conv.staff_message_kind_log);
 
       return {
         id: conv.conversation_id,
@@ -119,6 +139,7 @@ export async function GET(request: NextRequest) {
         status: conv.status,
         uiStatus,
         type: conv.chat_type ?? "buyer",
+        last_staff_send_kind: lastKind ?? null,
       };
     });
 

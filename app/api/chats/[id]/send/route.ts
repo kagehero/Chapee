@@ -37,6 +37,7 @@ export async function POST(
       shop_id: number;
       country: string;
       customer_name: string;
+      customer_id: number;
     }>("shopee_conversations");
 
     const conversation = await col.findOne({
@@ -50,14 +51,25 @@ export async function POST(
       );
     }
 
+    const toId = Number(conversation.customer_id);
+    if (!Number.isFinite(toId) || toId <= 0) {
+      return NextResponse.json(
+        {
+          error:
+            "買い手のユーザーIDが取得できません。設定から「全店舗同期」を実行して会話を取り込み直してください。",
+        },
+        { status: 400 }
+      );
+    }
+
     // Get valid access token
     const accessToken = await getValidToken(conversation.shop_id);
 
-    // Send message via Shopee API
+    // Send message via Shopee API（to_id = 会話の相手 = customer_id）
     const response = (await sendMessage(
       accessToken,
       conversation.shop_id,
-      conversationId,
+      toId,
       message
     )) as Record<string, unknown>;
 

@@ -58,6 +58,16 @@ export async function recordStaffMessageKind(
 
 const VALID_KINDS = new Set<StaffMessageKindTag>(["manual", "template", "auto"]);
 
+/** ログ末尾＝直近の店舗送信の種別（一覧表示用） */
+export function lastStaffKindFromLog(
+  log: Array<{ kind?: string }> | undefined
+): StaffMessageKindTag | undefined {
+  if (!log?.length) return undefined;
+  const last = log[log.length - 1];
+  const k = last?.kind as StaffMessageKindTag | undefined;
+  return k && VALID_KINDS.has(k) ? k : undefined;
+}
+
 /** ログから message_id → 最後に記録された kind（上書き優先） */
 export function kindMapFromLog(
   log: Array<{ id?: string; kind?: string }> | undefined
