@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   Suspense,
   type ReactNode,
@@ -29,6 +30,18 @@ import {
   dedupeShopNotificationItems,
   parseShopNotificationPayload,
 } from "@/lib/shopee-shop-notification-parse";
+import { cn } from "@/lib/utils";
+import {
+  CHAPEE_SHOP_NOTIFICATIONS_REFRESH,
+  type ShopNotificationsRefreshDetail,
+} from "@/lib/chapee-shop-notifications-events";
+import {
+  adjustLocalReadCountForServerUnread,
+  loadShopNotifReadState,
+  markShopNotificationReadInChapee,
+  saveShopNotifReadState,
+  type ShopNotifPersistedRead,
+} from "@/lib/chapee-shop-notifications-read";
 
 export type { ShopCenterNotifItem };
 export { parseShopNotificationPayload };
@@ -83,6 +96,84 @@ function renderShopNotificationContent(html: string): ReactNode {
   return <>{parts}</>;
 }
 
+function ShopNotifRow({
+  item,
+  readInChapee,
+  onReadInView,
+  onClosePopover,
+}: {
+  item: ShopCenterNotifItem;
+  readInChapee: boolean;
+  onReadInView: (id: string) => void;
+  onClosePopover?: () => void;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const didMark = useRef(false);
+
+  useEffect(() => {
+    if (readInChapee || didMark.current) return;
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting && e.intersectionRatio >= 0.45) {
+            didMark.current = true;
+            onReadInView(item.id);
+            obs.disconnect();
+            return;
+          }
+        }
+      },
+      { threshold: [0, 0.45, 0.5, 1] }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [item.id, readInChapee, onReadInView]);
+
+  return (
+    <div
+      ref={ref}
+      className={cn(
+        "px-3 py-2.5 hover:bg-muted/80 transition-colors",
+        readInChapee && "opacity-65"
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-medium text-foreground line-clamp-2 min-w-0">
+          {item.title}
+        </p>
+        {item.createdAt && (
+          <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+            {formatNotifTime(item.createdAt)}
+          </span>
+        )}
+      </div>
+      {item.content ? (
+        <p className="text-xs text-muted-foreground line-clamp-3 mt-1 [&_strong]:text-foreground">
+          {renderShopNotificationContent(item.content)}
+        </p>
+      ) : null}
+      {item.url ? (
+        <a
+          href={item.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-xs text-primary mt-2 hover:underline"
+          onClick={() => {
+            didMark.current = true;
+            onReadInView(item.id);
+            onClosePopover?.();
+          }}
+        >
+          詳細を開く
+          <ExternalLink size={10} />
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
 function HeaderNotificationCenterInner() {
   const router = useRouter();
   const pathname = usePathname();
@@ -95,6 +186,16 @@ function HeaderNotificationCenterInner() {
   const [nextCursor, setNextCursor] = useState<string | number | undefined>();
   const [shopLabel, setShopLabel] = useState<string | null>(null);
   const [serverUnreadTotal, setServerUnreadTotal] = useState<number | undefined>();
+  /** Shopee が未読件数を返さないとき、同期 delta の新着通知件数でバッジを補う */
+  const [syncNotifHint, setSyncNotifHint] = useState(0);
+
+  /** Chapee 内で既読にした通知（Shopee 未読数から減算） */
+  const [readState, setReadState] = useState<ShopNotifPersistedRead>({
+    readIds: [],
+    localReadCount: 0,
+    lastServerUnread: undefined,
+  });
+  const activeShopIdRef = useRef<number | null>(null);
 
   const fetchPage = useCallback(
     async (opts: { cursor?: string | number; append: boolean }) => {
@@ -131,7 +232,20 @@ function HeaderNotificationCenterInner() {
         setNextCursor(parsed.nextCursor);
       }
       if (parsed.shopId != null) {
-        setShopLabel(`Shop ${parsed.shopId}`);
+        const sid = parsed.shopId;
+        const switchShop = activeShopIdRef.current !== sid;
+        activeShopIdRef.current = sid;
+        setShopLabel(`Shop ${sid}`);
+        setReadState((prev) => {
+          const base =
+            opts.append || !switchShop ? prev : loadShopNotifReadState(sid);
+          const next = adjustLocalReadCountForServerUnread(
+            base,
+            parsed.serverUnreadTotal
+          );
+          saveShopNotifReadState(sid, next);
+          return next;
+        });
       }
     },
     []
@@ -175,6 +289,21 @@ function HeaderNotificationCenterInner() {
     void load();
   }, [load]);
 
+  /** POST /api/shopee/sync 完了後に一覧・未読を取り直し、delta 件数でバッジを補強 */
+  useEffect(() => {
+    const onRefresh = (e: Event) => {
+      const d = (e as CustomEvent<ShopNotificationsRefreshDetail>).detail;
+      const n = d?.newNotificationIdsTotal;
+      if (typeof n === "number" && n > 0) {
+        setSyncNotifHint((prev) => prev + n);
+      }
+      void load();
+    };
+    window.addEventListener(CHAPEE_SHOP_NOTIFICATIONS_REFRESH, onRefresh);
+    return () =>
+      window.removeEventListener(CHAPEE_SHOP_NOTIFICATIONS_REFRESH, onRefresh);
+  }, [load]);
+
   /** 一覧はそのまま、Shopee の未読総数だけ同期（先頭ページに戻さない） */
   const refreshUnreadFromShopee = useCallback(async () => {
     try {
@@ -187,9 +316,37 @@ function HeaderNotificationCenterInner() {
       if (parsed.serverUnreadTotal !== undefined) {
         setServerUnreadTotal(parsed.serverUnreadTotal);
       }
+      const sid = parsed.shopId ?? activeShopIdRef.current;
+      if (sid != null) {
+        activeShopIdRef.current = sid;
+        setReadState((prev) => {
+          const next = adjustLocalReadCountForServerUnread(
+            prev,
+            parsed.serverUnreadTotal
+          );
+          saveShopNotifReadState(sid, next);
+          return next;
+        });
+      }
     } catch {
       /* ignore */
     }
+  }, []);
+
+  const markNotificationReadInChapee = useCallback((id: string) => {
+    const sid = activeShopIdRef.current;
+    if (sid == null) return;
+    setReadState((prev) => {
+      const next = markShopNotificationReadInChapee(sid, id, prev);
+      if (next === prev) return prev;
+      saveShopNotifReadState(sid, next);
+      if (next.readIds.length > prev.readIds.length) {
+        queueMicrotask(() =>
+          setSyncNotifHint((h) => Math.max(0, h - 1))
+        );
+      }
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -209,12 +366,35 @@ function HeaderNotificationCenterInner() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [refreshUnreadFromShopee]);
 
-  const badgeCount = useMemo(() => {
+  const readIdsSet = useMemo(
+    () => new Set(readState.readIds),
+    [readState.readIds]
+  );
+
+  const baseBadgeCount = useMemo(() => {
     if (typeof serverUnreadTotal === "number" && serverUnreadTotal >= 0) {
-      return serverUnreadTotal;
+      const cap = Math.min(readState.localReadCount, serverUnreadTotal);
+      return Math.max(0, serverUnreadTotal - cap);
     }
-    return items.filter((i) => i.isRead === false).length;
-  }, [serverUnreadTotal, items]);
+    return items.filter(
+      (i) => i.isRead !== true && !readIdsSet.has(i.id)
+    ).length;
+  }, [serverUnreadTotal, readState.localReadCount, items, readIdsSet]);
+
+  useEffect(() => {
+    if (
+      syncNotifHint > 0 &&
+      typeof serverUnreadTotal === "number" &&
+      serverUnreadTotal >= syncNotifHint
+    ) {
+      setSyncNotifHint(0);
+    }
+  }, [serverUnreadTotal, syncNotifHint]);
+
+  const badgeCount = useMemo(
+    () => Math.max(baseBadgeCount, syncNotifHint),
+    [baseBadgeCount, syncNotifHint]
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -272,39 +452,20 @@ function HeaderNotificationCenterInner() {
             </p>
           ) : (
             <ul className="divide-y divide-border">
-              {items.map((r) => (
-                <li key={r.id}>
-                  <div className="px-3 py-2.5 hover:bg-muted/80 transition-colors">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-medium text-foreground line-clamp-2 min-w-0">
-                        {r.title}
-                      </p>
-                      {r.createdAt && (
-                        <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
-                          {formatNotifTime(r.createdAt)}
-                        </span>
-                      )}
-                    </div>
-                    {r.content ? (
-                      <p className="text-xs text-muted-foreground line-clamp-3 mt-1 [&_strong]:text-foreground">
-                        {renderShopNotificationContent(r.content)}
-                      </p>
-                    ) : null}
-                    {r.url ? (
-                      <a
-                        href={r.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-primary mt-2 hover:underline"
-                        onClick={() => setOpen(false)}
-                      >
-                        詳細を開く
-                        <ExternalLink size={10} />
-                      </a>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
+              {items.map((r) => {
+                const readInChapee =
+                  r.isRead === true || readIdsSet.has(r.id);
+                return (
+                  <li key={r.id}>
+                    <ShopNotifRow
+                      item={r}
+                      readInChapee={readInChapee}
+                      onReadInView={markNotificationReadInChapee}
+                      onClosePopover={() => setOpen(false)}
+                    />
+                  </li>
+                );
+              })}
             </ul>
           )}
         </ScrollArea>

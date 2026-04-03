@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Search, Users as UsersIcon,
   ChevronRight, User,
@@ -11,6 +11,11 @@ import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { StaffSendKindPill, type LastStaffSendKind } from "@/components/StaffSendKindPill";
+import {
+  dispatchShopNotificationsRefresh,
+  sumNewNotificationIdsFromSyncResults,
+} from "@/lib/chapee-shop-notifications-events";
 
 const COUNTRIES = ["全て", "SG", "PH", "MY", "TW", "TH", "VN", "BR"];
 
@@ -28,6 +33,8 @@ type ChatRow = {
   staff: string;
   unread: number;
   uiStatus: ChatStatus;
+  /** Chapee 経由で記録された直近の店舗送信 */
+  last_staff_send_kind?: LastStaffSendKind | null;
 };
 
 const statusConfig = {
@@ -66,15 +73,24 @@ function matchSearchQuery(
 
 export default function ChatsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [chats, setChats] = useState<ChatRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState("全て");
   const [selectedStatus, setSelectedStatus] = useState<ChatStatus | "all">("all");
   const [search, setSearch] = useState("");
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const [selectedChats, setSelectedChats] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+
+  useEffect(() => {
+    const c = searchParams.get("country");
+    if (c && COUNTRIES.includes(c)) setSelectedCountry(c);
+    const u = searchParams.get("unread_only") ?? searchParams.get("unread");
+    if (u === "1" || u === "true") setUnreadOnly(true);
+  }, [searchParams]);
 
   const loadChats = useCallback(async () => {
     const res = await fetch(
@@ -95,6 +111,7 @@ export default function ChatsPage() {
         uiStatus?: ChatStatus;
         product?: string;
         date?: string;
+        last_staff_send_kind?: LastStaffSendKind | null;
       }) => ({
         id: String(c.id),
         country: c.country,
@@ -107,6 +124,7 @@ export default function ChatsPage() {
         staff: c.staff ?? "未割当",
         unread: c.unread,
         uiStatus: (c.uiStatus as ChatStatus) || "replied",
+        last_staff_send_kind: c.last_staff_send_kind ?? null,
       })
     );
     setChats(rows);
@@ -129,7 +147,20 @@ export default function ChatsPage() {
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await fetch("/api/shopee/sync", { method: "POST" });
+      const res = await fetch("/api/shopee/sync", { method: "POST" });
+      const data = (await res.json()) as {
+        results?: Array<{
+          error?: string;
+          delta?: { new_notification_ids?: string[] };
+        }>;
+      };
+      if (res.ok) {
+        dispatchShopNotificationsRefresh({
+          newNotificationIdsTotal: sumNewNotificationIdsFromSyncResults(
+            data.results
+          ),
+        });
+      }
       await loadChats();
       toast.success("同期しました");
     } catch (e) {
@@ -143,8 +174,12 @@ export default function ChatsPage() {
     const matchCountry = selectedCountry === "全て" || c.country === selectedCountry;
     const matchStatus = selectedStatus === "all" || c.uiStatus === selectedStatus;
     const matchSearch = matchSearchQuery(search, c);
-    return matchCountry && matchStatus && matchSearch;
+    const matchUnread = !unreadOnly || c.unread > 0;
+    return matchCountry && matchStatus && matchSearch && matchUnread;
   });
+
+  const totalUnreadMessages = chats.reduce((s, c) => s + (c.unread > 0 ? c.unread : 0), 0);
+  const unreadConversationCount = chats.filter((c) => c.unread > 0).length;
 
   const totalPages = Math.ceil(filtered.length / itemsPerPage);
   const paginatedChats = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -178,8 +213,16 @@ export default function ChatsPage() {
         <div>
           <h2 className="text-gray-900 font-bold text-lg">チャット管理</h2>
           <p className="text-gray-500 text-sm mt-0.5">
-            Shopee同期済みの会話一覧（バイヤー・アフィリエイト等。Shopee公式通知は画面上部のベルから）
+            未読は一覧の先頭に表示されます。店舗側の最終送信が Chapee 経由の場合のみ「手動／テンプレ／自動返信」を表示します。
           </p>
+          {unreadConversationCount > 0 && (
+            <p className="text-sm font-semibold text-amber-800 mt-2 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-100 border border-amber-200 px-2.5 py-1">
+                <AlertCircle size={14} />
+                未読会話 {unreadConversationCount} 件 / 未読メッセージ合計 {totalUnreadMessages} 通
+              </span>
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -243,6 +286,38 @@ export default function ChatsPage() {
           </div>
         </div>
 
+        {/* Unread filter */}
+        <div>
+          <label className="text-gray-700 text-sm font-semibold mb-2 block">未読</label>
+          <div className="flex gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setUnreadOnly(false)}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-sm font-medium transition-all border",
+                !unreadOnly
+                  ? "bg-primary text-white border-primary"
+                  : "bg-white text-gray-700 border-gray-200 hover:border-primary/50"
+              )}
+            >
+              すべて
+            </button>
+            <button
+              type="button"
+              onClick={() => setUnreadOnly(true)}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-sm font-medium transition-all border flex items-center gap-1.5",
+                unreadOnly
+                  ? "bg-red-600 text-white border-red-600"
+                  : "bg-white text-gray-700 border-gray-200 hover:border-red-300"
+              )}
+            >
+              <AlertCircle size={14} />
+              未読のみ
+            </button>
+          </div>
+        </div>
+
         {/* Status Filter */}
         <div>
           <label className="text-gray-700 text-sm font-semibold mb-2 block">ステータス</label>
@@ -281,9 +356,9 @@ export default function ChatsPage() {
       </div>
 
       {/* Results Summary */}
-      <div className="flex items-center justify-between text-sm">
+      <div className="flex items-center justify-between text-sm flex-wrap gap-2">
         <span className="text-gray-600">
-          {filtered.length}件のチャット（{selectedChats.length}件選択中）
+          表示 {filtered.length} 件 / 全 {chats.length} 件（{selectedChats.length} 件選択中）
         </span>
         <span className="text-gray-500">
           ページ {currentPage} / {totalPages}
@@ -305,7 +380,9 @@ export default function ChatsPage() {
                   />
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">国</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">未読</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">顧客名</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">店舗最終送信</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">商品</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">最終メッセージ</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">日時</th>
@@ -318,7 +395,7 @@ export default function ChatsPage() {
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-16 text-center text-gray-500">
+                  <td colSpan={12} className="px-4 py-16 text-center text-gray-500">
                     <Loader2 className="animate-spin inline-block mr-2" size={20} />
                     読み込み中...
                   </td>
@@ -343,7 +420,8 @@ export default function ChatsPage() {
                     key={chat.id}
                     className={cn(
                       "hover:bg-gray-50 cursor-pointer transition-colors",
-                      rowBgColor
+                      rowBgColor,
+                      chat.unread > 0 && "border-l-4 border-l-red-500 bg-red-50/30"
                     )}
                     onClick={() => router.push(`/chats/${chat.id}`)}
                   >
@@ -361,14 +439,26 @@ export default function ChatsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
+                      {chat.unread > 0 ? (
+                        <span className="inline-flex min-w-[2rem] justify-center items-center rounded-full bg-red-600 text-white text-xs font-bold px-2 py-0.5 tabular-nums">
+                          {chat.unread}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300 text-xs">0</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-gray-900 font-medium text-sm">{chat.customer}</span>
                         {chat.unread > 0 && (
-                          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-500 text-white text-xs font-bold">
-                            {chat.unread}
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-red-600 bg-red-100 px-1.5 py-0.5 rounded">
+                            要対応
                           </span>
                         )}
                       </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <StaffSendKindPill kind={chat.last_staff_send_kind} />
                     </td>
                     <td className="px-4 py-3 text-gray-600 text-sm">{chat.product}</td>
                     <td className="px-4 py-3 text-gray-600 text-sm max-w-xs truncate">{chat.lastMessage}</td>

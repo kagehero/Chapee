@@ -360,6 +360,7 @@ export default function ChatDetailPage() {
   const [replyTemplates, setReplyTemplates] = useState<ReplyTemplateRow[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [translating, setTranslating] = useState<string | number | null>(null);
+  const [translatingInput, setTranslatingInput] = useState(false);
   const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
   const [infoOpen, setInfoOpen] = useState(false);
   const [orders, setOrders] = useState<OrderInfo[]>([]);
@@ -536,6 +537,36 @@ export default function ChatDetailPage() {
     if (loading || messages.length === 0) return;
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [loading, messages.length]);
+
+  /** 入力欄の文案を設定の翻訳エンジン（DeepL / Google）で日本語へ */
+  const handleTranslateInput = async () => {
+    const text = inputMessage.trim();
+    if (!text) {
+      toast.error("翻訳するテキストを入力してください");
+      return;
+    }
+    setTranslatingInput(true);
+    try {
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, target_lang: "JA" }),
+      });
+      const data = (await res.json()) as { text?: string; error?: string };
+      if (!res.ok) {
+        throw new Error(data.error || "翻訳に失敗しました");
+      }
+      if (!data.text) {
+        throw new Error("翻訳結果が空です");
+      }
+      setInputMessage(data.text);
+      toast.success("翻訳を入力欄に反映しました");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "翻訳に失敗しました");
+    } finally {
+      setTranslatingInput(false);
+    }
+  };
 
   const handleTranslate = async (msgId: string | number, content: string) => {
     const key = String(msgId);
@@ -1083,17 +1114,39 @@ export default function ChatDetailPage() {
               className="hidden"
             />
             <Button
+              type="button"
               variant="outline"
               size="sm"
+              title="設定の翻訳エンジン（DeepL または Google）で入力文を日本語に翻訳します"
+              disabled={translatingInput}
+              onClick={() => void handleTranslateInput()}
               className="h-8 sm:h-7 text-xs gap-1 border-primary/30 text-primary hover:bg-primary-subtle min-h-[44px] sm:min-h-0 hidden sm:flex"
             >
-              <Languages size={12} />
-              DeepL翻訳
+              {translatingInput ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Languages size={12} />
+              )}
+              {translatingInput ? "翻訳中…" : "DeepL翻訳"}
             </Button>
             <Button
+              type="button"
               variant="outline"
               size="sm"
               className="h-8 sm:h-7 text-xs gap-1 sm:ml-auto min-h-[44px] sm:min-h-0 hidden sm:flex"
+              onClick={async () => {
+                const t = inputMessage.trim();
+                if (!t) {
+                  toast.error("コピーする内容がありません");
+                  return;
+                }
+                try {
+                  await navigator.clipboard.writeText(t);
+                  toast.success("コピーしました");
+                } catch {
+                  toast.error("コピーに失敗しました");
+                }
+              }}
             >
               <Copy size={12} />
               コピー

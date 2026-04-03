@@ -316,7 +316,7 @@ export async function processDueAutoReplies(): Promise<ProcessAutoReplyResult> {
       const sendRes = (await sendMessage(
         accessToken,
         shopId,
-        convId,
+        buyerId,
         content
       )) as Record<string, unknown>;
       const sentId = extractMessageIdFromSendResponse(sendRes);
