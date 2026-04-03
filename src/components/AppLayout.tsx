@@ -13,11 +13,11 @@ import {
   LogOut,
   Menu,
   X,
-  Bell,
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import HeaderNotificationCenter from "@/components/HeaderNotificationCenter";
 
 // Project assets from /public
 const APP_ICON = "/icon.png";
@@ -195,14 +195,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              type="button"
-              className="relative p-2.5 rounded-xl hover:bg-gray-100 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-              aria-label="通知"
-            >
-              <Bell size={20} className="text-gray-600" />
-              <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-red-500 border-2 border-white" />
-            </button>
+            <HeaderNotificationCenter />
             <div className="w-10 h-10 rounded-2xl gradient-primary flex items-center justify-center hidden sm:flex shadow-md">
               <span className="text-white text-sm font-bold">田</span>
             </div>

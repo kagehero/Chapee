@@ -18,6 +18,24 @@ const COUNTRY_TO_SELLER_HOST: Record<string, string> = {
   BR: "seller.shopee.com.br",
 };
 
+/** バイヤー向け商品ページ（チャット内商品カード用） */
+const COUNTRY_TO_BUYER_HOST: Record<string, string> = {
+  SG: "shopee.sg",
+  MY: "shopee.my",
+  PH: "shopee.ph",
+  TW: "shopee.tw",
+  TH: "shopee.co.th",
+  ID: "shopee.co.id",
+  VN: "shopee.vn",
+  BR: "shopee.com.br",
+};
+
+export function buildBuyerItemUrl(country: string, shopId: string, itemId: string): string {
+  const c = country.toUpperCase();
+  const host = COUNTRY_TO_BUYER_HOST[c] ?? COUNTRY_TO_BUYER_HOST.SG;
+  return `https://${host}/product/${shopId}/${itemId}`;
+}
+
 /** 注文一覧で order_sn を指定（地域の Seller 画面に合わせたクエリ） */
 export function buildSellerOrderUrl(country: string, orderSn: string): string {
   const c = country.toUpperCase();

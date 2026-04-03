@@ -3,6 +3,7 @@ import { getConversations } from "@/lib/shopee-api";
 import { getValidToken, getConnectedShops } from "@/lib/shopee-token";
 import { getCollection } from "@/lib/mongodb";
 import {
+  extractBuyerAvatarFromShopee,
   inferChatTypeFromShopee,
   previewFromConversationListItem,
   shopeeNanoTimestampToDate,
@@ -81,6 +82,7 @@ export async function GET(request: NextRequest) {
           country: string;
           customer_id: number;
           customer_name: string;
+          customer_avatar_url?: string;
           last_message: string;
           last_message_time: Date;
           last_message_type?: string;
@@ -142,6 +144,10 @@ export async function GET(request: NextRequest) {
             to_name: conv.to_name,
           });
 
+          const buyerAvatar = extractBuyerAvatarFromShopee(
+            conv as unknown as Record<string, unknown>
+          );
+
           await col.updateOne(
             {
               conversation_id: String(conv.conversation_id),
@@ -152,6 +158,7 @@ export async function GET(request: NextRequest) {
                 country: shop.country,
                 customer_id: conv.to_id,
                 customer_name: conv.to_name,
+                ...(buyerAvatar ? { customer_avatar_url: buyerAvatar } : {}),
                 last_message: preview,
                 last_message_time: lastAt,
                 last_message_type: msgType,

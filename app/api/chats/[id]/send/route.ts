@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { sendMessage } from "@/lib/shopee-api";
 import { getValidToken } from "@/lib/shopee-token";
 import { getCollection } from "@/lib/mongodb";
+import { clearAutoReplySchedule } from "@/lib/auto-reply";
+import {
+  extractMessageIdFromSendResponse,
+  recordStaffMessageKind,
+} from "@/lib/staff-message-kind";
 
 /**
  * POST /api/chats/[id]/send - Send message to customer via Shopee
@@ -12,7 +17,11 @@ export async function POST(
 ) {
   try {
     const { id: conversationId } = await params;
-    const body = await request.json();
+    const body = (await request.json()) as {
+      message?: string;
+      /** UI: テンプレから送った場合は template */
+      send_kind?: string;
+    };
     const { message } = body;
 
     if (!message || !message.trim()) {
@@ -45,12 +54,24 @@ export async function POST(
     const accessToken = await getValidToken(conversation.shop_id);
 
     // Send message via Shopee API
-    const response = await sendMessage(
+    const response = (await sendMessage(
       accessToken,
       conversation.shop_id,
       conversationId,
       message
-    );
+    )) as Record<string, unknown>;
+
+    const tagKind =
+      body.send_kind === "template" ? ("template" as const) : ("manual" as const);
+    const mid = extractMessageIdFromSendResponse(response);
+    if (mid) {
+      await recordStaffMessageKind(
+        String(conversationId),
+        conversation.shop_id,
+        mid,
+        tagKind
+      );
+    }
 
     // Update conversation last_message_time
     await col.updateOne(
@@ -65,10 +86,13 @@ export async function POST(
       }
     );
 
+    await clearAutoReplySchedule(conversationId, conversation.shop_id);
+
     return NextResponse.json({
       success: true,
       message: "メッセージを送信しました",
       data: response,
+      message_id: mid ?? null,
     });
   } catch (error) {
     console.error("Send message error:", error);

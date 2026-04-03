@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { getCollection } from "@/lib/mongodb";
+import { handleAutoReplyOnWebhookMessage } from "@/lib/auto-reply";
 
 /**
  * Shopee Webhook Receiver
@@ -107,10 +108,22 @@ async function handleNewMessage(data: {
 
     console.log(`[Webhook] New message in conversation ${conversation_id}`);
 
+    const isStaff = Number(from_id) === Number(shop_id);
+    const buyerId = isStaff ? to_id : from_id;
+
+    const tokenCol = await getCollection<{ shop_id: number; country: string }>(
+      "shopee_tokens"
+    );
+    const tokenRow = await tokenCol.findOne({ shop_id });
+    const country = tokenRow?.country
+      ? String(tokenRow.country).toUpperCase()
+      : undefined;
+
     // Update conversation in database
     const col = await getCollection<{
       conversation_id: string;
       shop_id: number;
+      country?: string;
       customer_id: number;
       customer_name: string;
       last_message: string;
@@ -119,18 +132,21 @@ async function handleNewMessage(data: {
       status: string;
     }>("shopee_conversations");
 
+    const setDoc: Record<string, unknown> = {
+      customer_id: buyerId,
+      last_message: message,
+      last_message_time: new Date(timestamp * 1000),
+      status: "active",
+      updated_at: new Date(),
+    };
+    if (country) setDoc.country = country;
+    if (isStaff && to_name) setDoc.customer_name = to_name;
+
     await col.updateOne(
       { conversation_id, shop_id },
       {
-        $set: {
-          customer_id: to_id,
-          customer_name: to_name,
-          last_message: message,
-          last_message_time: new Date(timestamp * 1000),
-          status: "active",
-          updated_at: new Date(),
-        },
-        $inc: { unread_count: 1 },
+        $set: setDoc,
+        ...(isStaff ? {} : { $inc: { unread_count: 1 } }),
         $setOnInsert: {
           conversation_id,
           shop_id,
@@ -140,8 +156,13 @@ async function handleNewMessage(data: {
       { upsert: true }
     );
 
-    // TODO: Trigger real-time notification to connected clients (WebSocket/SSE)
-    // TODO: Check auto-reply rules and send automatic response
+    await handleAutoReplyOnWebhookMessage({
+      shop_id,
+      conversation_id,
+      to_id,
+      to_name,
+      from_id,
+    });
 
     console.log(`[Webhook] Conversation ${conversation_id} updated`);
   } catch (error) {

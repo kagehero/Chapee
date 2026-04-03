@@ -283,11 +283,15 @@ export default function DashboardPage() {
             className="relative overflow-hidden rounded-2xl border bg-white shadow-sm hover:shadow-md transition-all duration-200 group cursor-pointer"
             style={{ animationDelay: `${index * 50}ms` }}
             onClick={() => {
-              // ダッシュボードからはチャット管理ページに遷移
-              if (label === "バイヤーチャット") router.push("/chats?type=buyer");
-              else if (label === "Shopee通知") router.push("/chats?type=notification");
-              else if (label === "アフィリエイト") router.push("/chats?type=affiliate");
-              else router.push("/chats");
+              if (label === "Shopee通知") {
+                router.push("/chats?focus=notifications");
+                return;
+              }
+              if (label === "バイヤーチャット" || label === "アフィリエイト") {
+                router.push("/chats");
+                return;
+              }
+              router.push("/chats");
             }}
           >
             <div className="p-5 flex flex-col">

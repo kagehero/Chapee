@@ -1,5 +1,8 @@
+import type { Filter } from "mongodb";
 import { NextRequest, NextResponse } from "next/server";
 import { getCollection } from "@/lib/mongodb";
+
+type ChatType = "buyer" | "notification" | "affiliate";
 
 /**
  * GET /api/chats — conversations synced from Shopee (`shopee_conversations` in MongoDB)
@@ -10,7 +13,11 @@ export async function GET(request: NextRequest) {
     const country = searchParams.get("country");
     const status = searchParams.get("status");
     const type = searchParams.get("type");
+    const excludeChatTypesRaw = searchParams.get("exclude_chat_types");
     const searchQuery = searchParams.get("search")?.trim() ?? "";
+
+    const limitRaw = parseInt(searchParams.get("limit") ?? "500", 10);
+    const limit = Math.min(500, Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 500));
 
     const col = await getCollection<{
       conversation_id: string;
@@ -21,7 +28,7 @@ export async function GET(request: NextRequest) {
       last_message: string;
       last_message_time: Date;
       last_message_type?: string;
-      chat_type?: "buyer" | "notification" | "affiliate";
+      chat_type?: ChatType;
       unread_count: number;
       pinned: boolean;
       status: "active" | "resolved" | "archived";
@@ -30,15 +37,50 @@ export async function GET(request: NextRequest) {
       updated_at: Date;
     }>("shopee_conversations");
 
-    const filter: Record<string, string> = {};
-    if (country && country !== "全て") filter.country = country;
-    if (status) filter.status = status;
-    if (type) filter.chat_type = type;
+    type ConvDoc = {
+      conversation_id: string;
+      shop_id: number;
+      country: string;
+      customer_id: number;
+      customer_name: string;
+      last_message: string;
+      last_message_time: Date;
+      last_message_type?: string;
+      chat_type?: ChatType;
+      unread_count: number;
+      pinned: boolean;
+      status: "active" | "resolved" | "archived";
+      assigned_staff?: string;
+      created_at: Date;
+      updated_at: Date;
+    };
+
+    const filterDoc: Filter<ConvDoc> = {};
+    if (country && country !== "全て") filterDoc.country = country;
+    if (
+      status &&
+      (status === "active" || status === "resolved" || status === "archived")
+    ) {
+      filterDoc.status = status;
+    }
+
+    const allowedTypes: ChatType[] = ["buyer", "notification", "affiliate"];
+    if (type && allowedTypes.includes(type as ChatType)) {
+      filterDoc.chat_type = type as ChatType;
+    } else {
+      const exclude = (excludeChatTypesRaw ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s): s is ChatType =>
+          ["buyer", "notification", "affiliate"].includes(s)
+        );
+      if (exclude.length) filterDoc.chat_type = { $nin: exclude };
+    }
 
     const conversations = await col
-      .find(filter)
+      .find(filterDoc)
       .sort({ last_message_time: -1 })
-      .limit(500)
+      .limit(limit)
       .toArray();
 
     const now = Date.now();
