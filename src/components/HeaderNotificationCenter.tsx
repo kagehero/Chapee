@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useState,
   Suspense,
   type ReactNode,
@@ -30,7 +31,107 @@ export type ShopCenterNotifItem = {
   content: string;
   createdAt?: Date;
   url?: string;
+  /** API が既読を返す場合のみ。未設定は「不明」 */
+  isRead?: boolean;
 };
+
+/** Shopee が同一 notification_id を複数返すことがあるため、先勝ちで一意化 */
+function dedupeShopNotificationItems(
+  items: ShopCenterNotifItem[]
+): ShopCenterNotifItem[] {
+  const seen = new Set<string>();
+  const out: ShopCenterNotifItem[] = [];
+  for (const item of items) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    out.push(item);
+  }
+  return out;
+}
+
+function parseNonNegativeInt(v: unknown): number | undefined {
+  if (typeof v === "number" && Number.isFinite(v) && v >= 0) return Math.floor(v);
+  if (typeof v === "string" && /^\d+$/.test(v)) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+  }
+  return undefined;
+}
+
+/** 通知オブジェクトから既読を推定（フィールド名の揺れに対応） */
+function inferItemRead(o: Record<string, unknown>): boolean | undefined {
+  if (o.is_read === true) return true;
+  if (o.is_read === false) return false;
+  if (o.read === 1 || o.read === "1") return true;
+  if (o.read === 0 || o.read === "0") return false;
+  const rs = o.read_status;
+  if (rs === "unread" || rs === 0 || rs === "0") return false;
+  if (rs === "read" || rs === 1 || rs === "1") return true;
+  if (o.read_flag === 1) return true;
+  if (o.read_flag === 0) return false;
+  const st = o.status;
+  if (st === "read" || st === 1 || st === "1") return true;
+  if (st === "unread" || st === 0 || st === "0") return false;
+  return undefined;
+}
+
+/** Shopee get_shop_notification が返す未読総数（response のネストに対応） */
+const UNREAD_TOTAL_KEYS = [
+  "unread_count",
+  "total_unread",
+  "unread_number",
+  "total_unread_count",
+  "notification_unread_count",
+  "noti_unread_count",
+  "notification_unread_num",
+  "total_unread_num",
+] as const;
+
+function extractUnreadFromRecord(obj: Record<string, unknown>): number | undefined {
+  for (const k of UNREAD_TOTAL_KEYS) {
+    const n = parseNonNegativeInt(obj[k]);
+    if (n !== undefined) return n;
+  }
+  return undefined;
+}
+
+function extractServerUnreadTotal(
+  root: Record<string, unknown>,
+  resp: Record<string, unknown>
+): number | undefined {
+  const direct =
+    extractUnreadFromRecord(root) ?? extractUnreadFromRecord(resp);
+  if (direct !== undefined) return direct;
+
+  const nestedResp = resp.response;
+  if (
+    nestedResp &&
+    typeof nestedResp === "object" &&
+    !Array.isArray(nestedResp)
+  ) {
+    const n = extractUnreadFromRecord(nestedResp as Record<string, unknown>);
+    if (n !== undefined) return n;
+  }
+
+  const nestedRoot = root.response;
+  if (
+    nestedRoot &&
+    typeof nestedRoot === "object" &&
+    !Array.isArray(nestedRoot) &&
+    nestedRoot !== resp
+  ) {
+    const n = extractUnreadFromRecord(nestedRoot as Record<string, unknown>);
+    if (n !== undefined) return n;
+  }
+
+  for (const v of Object.values(resp)) {
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      const n = extractUnreadFromRecord(v as Record<string, unknown>);
+      if (n !== undefined) return n;
+    }
+  }
+  return undefined;
+}
 
 /** Shopee get_shop_notification のレスポンス（response 形の揺れに対応） */
 export function parseShopNotificationPayload(
@@ -39,6 +140,7 @@ export function parseShopNotificationPayload(
   items: ShopCenterNotifItem[];
   nextCursor?: string | number;
   shopId?: number;
+  serverUnreadTotal?: number;
 } {
   const shopId =
     typeof json.shop_id === "number"
@@ -49,6 +151,8 @@ export function parseShopNotificationPayload(
 
   const root = json;
   const resp = (root.response as Record<string, unknown>) ?? root;
+
+  const serverUnreadTotal = extractServerUnreadTotal(root, resp);
 
   const nextCursor =
     (resp.cursor as string | number | undefined) ??
@@ -96,7 +200,16 @@ export function parseShopNotificationPayload(
       createdAt = new Date(n > 1e12 ? n : n * 1000);
     }
 
-    return { id, title, content, createdAt, url };
+    const isRead = inferItemRead(o);
+
+    return {
+      id,
+      title,
+      content,
+      createdAt,
+      url,
+      ...(isRead !== undefined ? { isRead } : {}),
+    };
   });
 
   return {
@@ -106,6 +219,7 @@ export function parseShopNotificationPayload(
         ? nextCursor
         : undefined,
     shopId: Number.isFinite(shopId) ? shopId : undefined,
+    serverUnreadTotal,
   };
 }
 
@@ -170,6 +284,7 @@ function HeaderNotificationCenterInner() {
   const [items, setItems] = useState<ShopCenterNotifItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string | number | undefined>();
   const [shopLabel, setShopLabel] = useState<string | null>(null);
+  const [serverUnreadTotal, setServerUnreadTotal] = useState<number | undefined>();
 
   const fetchPage = useCallback(
     async (opts: { cursor?: string | number; append: boolean }) => {
@@ -188,15 +303,21 @@ function HeaderNotificationCenterInner() {
         throw new Error(msg);
       }
       const parsed = parseShopNotificationPayload(json);
+      const pageItems = dedupeShopNotificationItems(parsed.items);
+      if (parsed.serverUnreadTotal !== undefined) {
+        setServerUnreadTotal(parsed.serverUnreadTotal);
+      }
       if (opts.append) {
-        if (parsed.items.length === 0) {
+        if (pageItems.length === 0) {
           setNextCursor(undefined);
         } else {
-          setItems((prev) => [...prev, ...parsed.items]);
+          setItems((prev) =>
+            dedupeShopNotificationItems([...prev, ...pageItems])
+          );
           setNextCursor(parsed.nextCursor);
         }
       } else {
-        setItems(parsed.items);
+        setItems(pageItems);
         setNextCursor(parsed.nextCursor);
       }
       if (parsed.shopId != null) {
@@ -244,7 +365,46 @@ function HeaderNotificationCenterInner() {
     void load();
   }, [load]);
 
-  const hasIndicator = items.length > 0;
+  /** 一覧はそのまま、Shopee の未読総数だけ同期（先頭ページに戻さない） */
+  const refreshUnreadFromShopee = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      params.set("page_size", "1");
+      const res = await fetch(`/api/shopee/shop-notifications?${params}`);
+      const json = (await res.json()) as Record<string, unknown>;
+      if (!res.ok) return;
+      const parsed = parseShopNotificationPayload(json);
+      if (parsed.serverUnreadTotal !== undefined) {
+        setServerUnreadTotal(parsed.serverUnreadTotal);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    const intervalMs = 120_000;
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void refreshUnreadFromShopee();
+    }, intervalMs);
+    return () => window.clearInterval(id);
+  }, [refreshUnreadFromShopee]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") void refreshUnreadFromShopee();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [refreshUnreadFromShopee]);
+
+  const badgeCount = useMemo(() => {
+    if (typeof serverUnreadTotal === "number" && serverUnreadTotal >= 0) {
+      return serverUnreadTotal;
+    }
+    return items.filter((i) => i.isRead === false).length;
+  }, [serverUnreadTotal, items]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -255,8 +415,10 @@ function HeaderNotificationCenterInner() {
           aria-label="Shopeeセンター通知"
         >
           <Bell size={20} className="text-gray-600" />
-          {hasIndicator && (
-            <span className="absolute top-2 right-2 min-w-[8px] h-2 rounded-full bg-red-500 border-2 border-white" />
+          {badgeCount > 0 && (
+            <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold leading-[18px] text-center border-2 border-white tabular-nums">
+              {badgeCount > 99 ? "99+" : String(badgeCount)}
+            </span>
           )}
         </button>
       </PopoverTrigger>

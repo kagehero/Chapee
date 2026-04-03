@@ -14,6 +14,9 @@ import { toast } from "sonner";
 
 const COUNTRIES = ["全て", "SG", "PH", "MY", "TW", "TH", "VN", "BR"];
 
+/** ダッシュボード表示中の自動同期間隔（ミリ秒） */
+const DASHBOARD_AUTO_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+
 // チャットタイプ定義
 type ChatType = "buyer" | "notification" | "affiliate";
 
@@ -185,6 +188,15 @@ export default function DashboardPage() {
       cancelled = true;
     };
   }, [fetchChats, runBackgroundSync]);
+
+  // 10分ごとに Shopee へ同期（このページを開いたままのとき。タブが非表示ならスキップ）
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void runBackgroundSync();
+    }, DASHBOARD_AUTO_SYNC_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [runBackgroundSync]);
 
   const handleSync = async () => {
     setManualSyncing(true);
