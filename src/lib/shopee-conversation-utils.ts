@@ -342,15 +342,23 @@ export function displayFromShopeeChatMessage(msg: Record<string, unknown>): Shop
   const shopId = pickString(flat, ["shop_id", "shopid"]);
   const img = pickImageUrlFromPayload(flat, msg, mt);
 
-  if (mt.includes("sticker") || mt.includes("emotion")) {
-    const url = img;
+  /** message_type が数値や別名でも、sticker 系フィールドがあればスタンプとして扱う */
+  const hasStickerShape =
+    !!pickString(flat, ["sticker_id", "stickerid"]) ||
+    !!pickString(flat, ["sticker_package_id", "package_id", "sticker_packageid"]);
+
+  if (hasStickerShape || mt.includes("sticker") || mt.includes("emotion")) {
     return {
       kind: "sticker",
-      summary: url ? "スタンプ" : "スタンプ",
+      summary: "スタンプ",
       sticker: {
-        image_url: url,
+        image_url: img,
         sticker_id: pickString(flat, ["sticker_id", "stickerid"]),
-        package_id: pickString(flat, ["sticker_package_id", "package_id", "sticker_packageid"]),
+        package_id: pickString(flat, [
+          "sticker_package_id",
+          "package_id",
+          "sticker_packageid",
+        ]),
       },
     };
   }

@@ -524,6 +524,52 @@ export async function sendMessage(
 }
 
 /**
+ * スタンプ送信（v2.sellerchat.send_message / message_type: sticker）
+ */
+export async function sendStickerMessage(
+  accessToken: string,
+  shopId: number,
+  toId: number,
+  stickerPackageId: string,
+  stickerId: string
+) {
+  const path = "/api/v2/sellerchat/send_message";
+  const timestamp = Math.floor(Date.now() / 1000);
+  const sign = generateSignature(path, timestamp, accessToken, shopId);
+
+  const url =
+    `${BASE_URL}${path}?` +
+    `partner_id=${PARTNER_ID}&` +
+    `timestamp=${timestamp}&` +
+    `access_token=${encodeURIComponent(accessToken)}&` +
+    `shop_id=${shopId}&` +
+    `sign=${sign}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      to_id: toId,
+      message_type: "sticker",
+      content: {
+        sticker_package_id: stickerPackageId,
+        sticker_id: stickerId,
+      },
+    }),
+  });
+
+  const data = await parseShopeeResponseJson(response, "send_sticker_message");
+
+  if (data.error) {
+    throw new Error(
+      `Shopee API Error: ${String(data.message ?? data.error)}`
+    );
+  }
+
+  return data;
+}
+
+/**
  * Order list (for matching buyer → order_sn)
  */
 export async function getOrderList(
