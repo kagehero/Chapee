@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
 import { getCollection } from "@/lib/mongodb";
 import { handleAutoReplyOnWebhookMessage } from "@/lib/auto-reply";
 
@@ -54,26 +53,6 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-/**
- * Verify Shopee webhook signature
- */
-function verifyWebhookSignature(
-  body: string,
-  signature: string | null
-): boolean {
-  if (!signature) return false;
-
-  const partnerKey = process.env.SHOPEE_PARTNER_KEY;
-  if (!partnerKey) return false;
-
-  const expectedSignature = crypto
-    .createHmac("sha256", partnerKey)
-    .update(body)
-    .digest("hex");
-
-  return signature === expectedSignature;
 }
 
 /**
@@ -162,33 +141,6 @@ async function handleNewMessage(data: {
     console.log(`[Webhook] Conversation ${conversation_id} updated`);
   } catch (error) {
     console.error("[Webhook] handleNewMessage error:", error);
-  }
-}
-
-/**
- * Handle message read webhook
- */
-async function handleMessageRead(data: {
-  shop_id: number;
-  conversation_id: string;
-}) {
-  try {
-    const { shop_id, conversation_id } = data;
-
-    console.log(`[Webhook] Messages read in conversation ${conversation_id}`);
-
-    const col = await getCollection("shopee_conversations");
-    await col.updateOne(
-      { conversation_id, shop_id },
-      {
-        $set: {
-          unread_count: 0,
-          updated_at: new Date(),
-        },
-      }
-    );
-  } catch (error) {
-    console.error("[Webhook] handleMessageRead error:", error);
   }
 }
 
