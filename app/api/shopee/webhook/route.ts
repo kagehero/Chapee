@@ -6,6 +6,16 @@ import { handleAutoReplyOnWebhookMessage } from "@/lib/auto-reply";
 /** 署名検証をバイパスしない（Vercel / CDN のキャッシュで検証がおかしくなるのを防ぐ） */
 export const dynamic = "force-dynamic";
 
+/** Shopee の URL 検証・Push 成功応答は空ボディ 200 であることを期待する場合がある */
+function okWebhookResponse(): NextResponse {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
 /**
  * Shopee Webhook Receiver
  * POST /api/shopee/webhook
@@ -17,6 +27,8 @@ export const dynamic = "force-dynamic";
  * 
  * Configure webhook URL in Shopee Open Platform:
  * https://yourdomain.com/api/shopee/webhook
+ *
+ * OAuth の Redirect URL は別: https://yourdomain.com/api/shopee/callback （webhook と混同しない）
  */
 export async function POST(request: NextRequest) {
   try {
@@ -25,6 +37,11 @@ export async function POST(request: NextRequest) {
     const skipVerify = process.env.SHOPEE_WEBHOOK_SKIP_VERIFY === "1";
     const allowUnsigned =
       process.env.SHOPEE_WEBHOOK_ALLOW_UNSIGNED === "1";
+
+    /** 接続テストで「ボディなし・署名なし」の POST が来ることがあり、先に 401 になるのを防ぐ */
+    if (!body.trim() && !signatureHeader) {
+      return okWebhookResponse();
+    }
 
     if (!skipVerify && !process.env.SHOPEE_PARTNER_KEY?.trim()) {
       console.error(
@@ -60,7 +77,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!body.trim()) {
-      return NextResponse.json({ success: true });
+      return okWebhookResponse();
     }
 
     let payload: { code?: number; data?: unknown };
@@ -68,12 +85,12 @@ export async function POST(request: NextRequest) {
       payload = JSON.parse(body) as { code?: number; data?: unknown };
     } catch {
       console.warn("[Webhook] Non-JSON body; acknowledged");
-      return NextResponse.json({ success: true });
+      return okWebhookResponse();
     }
     console.log("[Webhook] Received event:", payload.code, payload);
 
     if (payload.code == null) {
-      return NextResponse.json({ success: true });
+      return okWebhookResponse();
     }
 
     // Handle different webhook events
@@ -123,7 +140,7 @@ export async function POST(request: NextRequest) {
         console.log("[Webhook] Unknown event code:", payload.code);
     }
 
-    return NextResponse.json({ success: true });
+    return okWebhookResponse();
   } catch (error) {
     console.error("[Webhook] Error:", error);
     return NextResponse.json(
