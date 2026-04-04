@@ -17,6 +17,8 @@ import { handleAutoReplyOnWebhookMessage } from "@/lib/auto-reply";
  */
 export async function POST(request: NextRequest) {
 
+  console.log('Shopee Push:');
+
   console.log('Shopee Push:', await request.text());
 
   // IMPORTANT: always respond 200
