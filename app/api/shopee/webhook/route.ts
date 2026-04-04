@@ -26,16 +26,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.text();
-    const signature = request.headers.get("authorization");
-
-    // Verify webhook signature
-    if (!verifyWebhookSignature(body, signature)) {
-      console.error("[Webhook] Invalid signature");
-      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-    }
 
     const payload = JSON.parse(body);
-    console.log("[Webhook] Received event:", payload.code, payload);
 
     // Handle different webhook events（Push Code は Shopee コンソールの表に従う）
     switch (payload.code) {
