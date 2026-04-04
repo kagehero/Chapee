@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sendMessage } from "@/lib/shopee-api";
+import { sendMessage, sendStickerMessage } from "@/lib/shopee-api";
 import { getValidToken } from "@/lib/shopee-token";
 import { getCollection } from "@/lib/mongodb";
 import { clearAutoReplySchedule } from "@/lib/auto-reply";
@@ -19,12 +19,17 @@ export async function POST(
     const { id: conversationId } = await params;
     const body = (await request.json()) as {
       message?: string;
+      sticker_package_id?: string;
+      sticker_id?: string;
       /** UI: テンプレから送った場合は template */
       send_kind?: string;
     };
     const { message } = body;
+    const stickerPackageId = String(body.sticker_package_id ?? "").trim();
+    const stickerId = String(body.sticker_id ?? "").trim();
+    const isStickerSend = stickerPackageId.length > 0 && stickerId.length > 0;
 
-    if (!message || !message.trim()) {
+    if (!isStickerSend && (!message || !message.trim())) {
       return NextResponse.json(
         { error: "メッセージが空です" },
         { status: 400 }
@@ -65,13 +70,22 @@ export async function POST(
     // Get valid access token
     const accessToken = await getValidToken(conversation.shop_id);
 
-    // Send message via Shopee API（to_id = 会話の相手 = customer_id）
-    const response = (await sendMessage(
-      accessToken,
-      conversation.shop_id,
-      toId,
-      message
-    )) as Record<string, unknown>;
+    const textBody = (message ?? "").trim();
+
+    const response = isStickerSend
+      ? ((await sendStickerMessage(
+          accessToken,
+          conversation.shop_id,
+          toId,
+          stickerPackageId,
+          stickerId
+        )) as Record<string, unknown>)
+      : ((await sendMessage(
+          accessToken,
+          conversation.shop_id,
+          toId,
+          textBody
+        )) as Record<string, unknown>);
 
     const tagKind =
       body.send_kind === "template" ? ("template" as const) : ("manual" as const);
@@ -85,12 +99,14 @@ export async function POST(
       );
     }
 
+    const lastPreview = isStickerSend ? "[スタンプ]" : textBody;
+
     // Update conversation last_message_time
     await col.updateOne(
       { conversation_id: String(conversationId) },
       {
         $set: {
-          last_message: message,
+          last_message: lastPreview,
           last_message_time: new Date(),
           unread_count: 0,
           updated_at: new Date(),

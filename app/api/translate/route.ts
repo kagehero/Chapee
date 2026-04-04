@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveTranslateCredentials } from "@/lib/translation-settings";
+import { inferTargetLangJaEnSwap } from "@/lib/ja-en-translate-detect";
 
 /**
  * POST /api/translate
  * Body: { text: string, target_lang?: string }
+ * - target_lang 省略 / "auto" / "AUTO" … 日本語⇔英語を自動（日本語多め→英語へ、英語多め→日本語へ）
+ * - target_lang を明示 … その言語へ訳す（従来どおり）
  * エンジンは設定画面の「メッセージ履歴の翻訳」に従う（DeepL / Google）。
  */
 export async function POST(request: NextRequest) {
@@ -14,7 +17,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "text が空です" }, { status: 400 });
     }
 
-    const targetRaw = String(body.target_lang ?? "JA");
+    const raw = body.target_lang;
+    const auto =
+      raw == null ||
+      raw === "" ||
+      String(raw).toLowerCase() === "auto";
+    const targetRaw = auto
+      ? inferTargetLangJaEnSwap(text)
+      : String(raw);
     const { history_provider, deeplKey, googleKey } =
       await resolveTranslateCredentials();
 
@@ -48,7 +58,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "翻訳結果が空です" }, { status: 502 });
     }
 
-    return NextResponse.json({ text: translated });
+    const targetNorm = targetRaw.toUpperCase().split(/[-_]/)[0];
+    return NextResponse.json({
+      text: translated,
+      target_lang: targetNorm === "JA" || targetNorm === "EN" ? targetNorm : targetRaw,
+    });
   } catch (error) {
     console.error("POST /api/translate:", error);
     const msg =
@@ -74,7 +88,9 @@ async function translateDeepL(
     },
     body: JSON.stringify({
       text: [text],
-      target_lang: targetLang.toUpperCase(),
+      /** DeepL は EN ではなく EN-US / EN-GB 等が必要なため */
+      target_lang:
+        targetLang.toUpperCase() === "EN" ? "EN-US" : targetLang.toUpperCase(),
     }),
   });
 

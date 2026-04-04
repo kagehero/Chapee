@@ -18,29 +18,68 @@ import { handleAutoReplyOnWebhookMessage } from "@/lib/auto-reply";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.text();
-    const signature = request.headers.get("authorization");
+    const signatureHeader = extractWebhookSignatureHeader(request);
 
-    // Verify webhook signature
-    if (!verifyWebhookSignature(body, signature)) {
-      console.error("[Webhook] Invalid signature");
+    if (!process.env.SHOPEE_PARTNER_KEY?.trim()) {
+      console.error(
+        "[Webhook] SHOPEE_PARTNER_KEY is not set (Vercel Environment Variables)"
+      );
+      return NextResponse.json(
+        { error: "Server misconfiguration: partner key missing" },
+        { status: 503 }
+      );
+    }
+
+    // Verify webhook signature (Shopee は x-shopee-signature または Authorization)
+    if (!verifyWebhookSignature(body, signatureHeader)) {
+      console.error(
+        "[Webhook] Invalid signature (check SHOPEE_PARTNER_KEY matches Open Platform)"
+      );
       return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
     }
 
-    const payload = JSON.parse(body);
+    if (!body.trim()) {
+      return NextResponse.json({ success: true });
+    }
+
+    let payload: { code?: number; data?: unknown };
+    try {
+      payload = JSON.parse(body) as { code?: number; data?: unknown };
+    } catch {
+      console.warn("[Webhook] Non-JSON body; acknowledged");
+      return NextResponse.json({ success: true });
+    }
     console.log("[Webhook] Received event:", payload.code, payload);
 
+    if (payload.code == null) {
+      return NextResponse.json({ success: true });
+    }
+
     // Handle different webhook events
+    const data = payload.data;
     switch (payload.code) {
       case 1: // New message received
-        await handleNewMessage(payload.data);
+        if (data && typeof data === "object") {
+          await handleNewMessage(
+            data as Parameters<typeof handleNewMessage>[0]
+          );
+        }
         break;
 
       case 2: // Message read
-        await handleMessageRead(payload.data);
+        if (data && typeof data === "object") {
+          await handleMessageRead(
+            data as Parameters<typeof handleMessageRead>[0]
+          );
+        }
         break;
 
       case 3: // Conversation pinned/unpinned
-        await handleConversationUpdate(payload.data);
+        if (data && typeof data === "object") {
+          await handleConversationUpdate(
+            data as Parameters<typeof handleConversationUpdate>[0]
+          );
+        }
         break;
 
       case 10: // Shop authorization
@@ -62,6 +101,28 @@ export async function POST(request: NextRequest) {
 }
 
 /**
+ * Shopee Push: 署名は raw body に対する HMAC-SHA256 hex。
+ * ヘッダは `x-shopee-signature` が一般的。`Authorization` に付く場合もある。
+ */
+function extractWebhookSignatureHeader(request: NextRequest): string | null {
+  const x =
+    request.headers.get("x-shopee-signature") ??
+    request.headers.get("X-Shopee-Signature");
+  if (x?.trim()) return normalizeSignatureHeaderValue(x);
+  const auth = request.headers.get("authorization");
+  if (auth?.trim()) return normalizeSignatureHeaderValue(auth);
+  return null;
+}
+
+function normalizeSignatureHeaderValue(value: string): string {
+  const t = value.trim();
+  if (/^bearer\s+/i.test(t)) {
+    return t.replace(/^bearer\s+/i, "").trim();
+  }
+  return t;
+}
+
+/**
  * Verify Shopee webhook signature
  */
 function verifyWebhookSignature(
@@ -78,7 +139,14 @@ function verifyWebhookSignature(
     .update(body)
     .digest("hex");
 
-  return signature === expectedSignature;
+  const a = expectedSignature.toLowerCase();
+  const b = signature.toLowerCase();
+  if (a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(a, "hex"), Buffer.from(b, "hex"));
+  } catch {
+    return a === b;
+  }
 }
 
 /**

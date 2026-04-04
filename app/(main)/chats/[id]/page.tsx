@@ -13,10 +13,16 @@ import {
   ArrowLeft, Send, Languages, Package, Clock,
   ChevronDown, FileText, ShoppingBag, Copy, User, Info,
   Paperclip, Image as ImageIcon, File, X, Loader2, ExternalLink,
+  Smile,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useNotificationSounds } from "@/lib/useNotificationSounds";
@@ -373,6 +379,7 @@ export default function ChatDetailPage() {
   /** テンプレ選択直後の ID（送信時に本文一致なら「テンプレ」扱い） */
   const pendingTemplateIdRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
 
   const loadReplyTemplates = useCallback(async () => {
     setTemplatesLoading(true);
@@ -393,6 +400,30 @@ export default function ChatDetailPage() {
     () => groupReplyTemplatesByCategory(replyTemplates, conversation?.country),
     [replyTemplates, conversation?.country]
   );
+
+  /** 会話内に現れたスタンプ（package_id + sticker_id）— Shopee はパック一覧 API が無いため、受信済みスタンプから返信用に使う */
+  const stickerChoicesFromThread = useMemo(() => {
+    const m = new Map<
+      string,
+      { sticker_id: string; package_id: string; image_url?: string }
+    >();
+    for (const msg of messages) {
+      if (msg.content_kind !== "sticker") continue;
+      const c = msg.sticker_card;
+      const sid = c?.sticker_id?.trim();
+      const pid = c?.package_id?.trim();
+      if (!sid || !pid) continue;
+      const k = `${pid}:${sid}`;
+      if (!m.has(k)) {
+        m.set(k, {
+          sticker_id: sid,
+          package_id: pid,
+          image_url: c?.image_url,
+        });
+      }
+    }
+    return Array.from(m.values());
+  }, [messages]);
 
   // Load messages from API
   useEffect(() => {
@@ -538,7 +569,7 @@ export default function ChatDetailPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [loading, messages.length]);
 
-  /** 入力欄の文案を設定の翻訳エンジン（DeepL / Google）で日本語へ */
+  /** 入力欄: 日本語多め→英語、英語多め→日本語（API 側で自動判定） */
   const handleTranslateInput = async () => {
     const text = inputMessage.trim();
     if (!text) {
@@ -550,9 +581,13 @@ export default function ChatDetailPage() {
       const res = await fetch("/api/translate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, target_lang: "JA" }),
+        body: JSON.stringify({ text, target_lang: "auto" }),
       });
-      const data = (await res.json()) as { text?: string; error?: string };
+      const data = (await res.json()) as {
+        text?: string;
+        target_lang?: string;
+        error?: string;
+      };
       if (!res.ok) {
         throw new Error(data.error || "翻訳に失敗しました");
       }
@@ -560,7 +595,12 @@ export default function ChatDetailPage() {
         throw new Error("翻訳結果が空です");
       }
       setInputMessage(data.text);
-      toast.success("翻訳を入力欄に反映しました");
+      const tl = data.target_lang?.toUpperCase().replace(/-.*/, "");
+      toast.success(
+        tl === "EN"
+          ? "英語に翻訳して入力欄に反映しました"
+          : "日本語に翻訳して入力欄に反映しました"
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "翻訳に失敗しました");
     } finally {
@@ -575,18 +615,24 @@ export default function ChatDetailPage() {
       const res = await fetch("/api/translate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: content, target_lang: "JA" }),
+        body: JSON.stringify({ text: content, target_lang: "auto" }),
       });
-      const data = (await res.json()) as { text?: string; error?: string };
+      const data = (await res.json()) as {
+        text?: string;
+        target_lang?: string;
+        error?: string;
+      };
       if (!res.ok) {
         throw new Error(data.error || "翻訳に失敗しました");
       }
       if (!data.text) {
         throw new Error("翻訳結果が空です");
       }
+      const tl = data.target_lang?.toUpperCase().replace(/-.*/, "");
+      const prefix = tl === "EN" ? "[英訳]" : "[日訳]";
       setTranslatedMessages((prev) => ({
         ...prev,
-        [key]: `[翻訳] 「${data.text}」`,
+        [key]: `${prefix} 「${data.text}」`,
       }));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "翻訳に失敗しました");
@@ -595,6 +641,60 @@ export default function ChatDetailPage() {
     }
   };
 
+
+  const handleSendSticker = async (
+    stickerPackageId: string,
+    stickerRowId: string
+  ) => {
+    setSending(true);
+    try {
+      const res = await fetch(`/api/chats/${encodeURIComponent(id)}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sticker_package_id: stickerPackageId,
+          sticker_id: stickerRowId,
+          send_kind: "manual",
+        }),
+      });
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        throw new Error(data.error || "スタンプの送信に失敗しました");
+      }
+      const preview = stickerChoicesFromThread.find(
+        (s) =>
+          s.sticker_id === stickerRowId && s.package_id === stickerPackageId
+      );
+      const ts = formatMessageTimestamps(Date.now());
+      const newMessage: Message = {
+        id: String(Date.now()),
+        sender: "staff",
+        content: "スタンプ",
+        content_kind: "sticker",
+        sticker_card: {
+          sticker_id: stickerRowId,
+          package_id: stickerPackageId,
+          image_url: preview?.image_url,
+        },
+        time: ts.time,
+        datetime: ts.datetime,
+        date_key: ts.date_key,
+        timestamp_ms: ts.timestamp_ms,
+        translated: false,
+        staffSendKind: "manual",
+      };
+      setMessages((prev) => [...prev, newMessage]);
+      setStickerPickerOpen(false);
+      toast.success("スタンプを送信しました");
+    } catch (error) {
+      console.error("Sticker send error:", error);
+      toast.error(
+        error instanceof Error ? error.message : "スタンプの送信に失敗しました"
+      );
+    } finally {
+      setSending(false);
+    }
+  };
 
   const handleSend = async () => {
     if (!inputMessage.trim() && attachedFiles.length === 0) return;
@@ -1096,6 +1196,66 @@ export default function ChatDetailPage() {
               テンプレート
               <ChevronDown size={10} className={cn("transition-transform", showTemplates && "rotate-180")} />
             </Button>
+            <Popover open={stickerPickerOpen} onOpenChange={setStickerPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={sending}
+                  className="h-8 sm:h-7 text-xs gap-1 min-h-[44px] sm:min-h-0 text-primary"
+                  title="この会話で受信したスタンプから返信（同じパック）"
+                >
+                  <Smile size={12} />
+                  スタンプ
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="w-[min(100vw-2rem,20rem)] p-3"
+                sideOffset={6}
+              >
+                <p className="text-xs font-semibold text-foreground mb-2">
+                  会話内のスタンプで返信
+                </p>
+                {stickerChoicesFromThread.length === 0 ? (
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    まだスタンプのやり取りがありません。バイヤーがスタンプを送ると、ここに表示され同じパックから返信できます。
+                  </p>
+                ) : (
+                  <ul className="grid grid-cols-4 gap-2 max-h-[min(50vh,240px)] overflow-y-auto scrollbar-thin">
+                    {stickerChoicesFromThread.map((s) => (
+                      <li key={`${s.package_id}:${s.sticker_id}`}>
+                        <button
+                          type="button"
+                          disabled={sending}
+                          onClick={() =>
+                            void handleSendSticker(s.package_id, s.sticker_id)
+                          }
+                          className="w-full aspect-square rounded-lg border border-border bg-muted/40 hover:bg-muted hover:border-primary/50 transition-colors flex items-center justify-center p-1 overflow-hidden"
+                          title="このスタンプを送信"
+                        >
+                          {s.image_url ? (
+                            <img
+                              src={s.image_url}
+                              alt=""
+                              className="max-h-full max-w-full object-contain"
+                            />
+                          ) : (
+                            <Smile className="size-7 text-muted-foreground" />
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="text-[10px] text-muted-foreground mt-2 leading-snug">
+                  Shopee
+                  の公式スタンプ一覧APIがないため、セラーアプリと同じパックを使うには、先に相手（または自分がSeller
+                  Center側）のスタンプをこの会話に含めてください。
+                </p>
+              </PopoverContent>
+            </Popover>
             <Button
               variant="outline"
               size="sm"
@@ -1117,7 +1277,7 @@ export default function ChatDetailPage() {
               type="button"
               variant="outline"
               size="sm"
-              title="設定の翻訳エンジン（DeepL または Google）で入力文を日本語に翻訳します"
+              title="設定の翻訳エンジン（DeepL または Google）で、日本語↔英語を自動判別して翻訳します"
               disabled={translatingInput}
               onClick={() => void handleTranslateInput()}
               className="h-8 sm:h-7 text-xs gap-1 border-primary/30 text-primary hover:bg-primary-subtle min-h-[44px] sm:min-h-0 hidden sm:flex"
