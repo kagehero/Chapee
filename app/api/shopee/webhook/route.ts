@@ -3,19 +3,6 @@ import crypto from "crypto";
 import { getCollection } from "@/lib/mongodb";
 import { handleAutoReplyOnWebhookMessage } from "@/lib/auto-reply";
 
-/** 署名検証をバイパスしない（Vercel / CDN のキャッシュで検証がおかしくなるのを防ぐ） */
-export const dynamic = "force-dynamic";
-
-/** Shopee の URL 検証・Push 成功応答は空ボディ 200 であることを期待する場合がある */
-function okWebhookResponse(): NextResponse {
-  return new NextResponse(null, {
-    status: 200,
-    headers: {
-      "Cache-Control": "no-store",
-    },
-  });
-}
-
 /**
  * Shopee Webhook Receiver
  * POST /api/shopee/webhook
@@ -27,173 +14,57 @@ function okWebhookResponse(): NextResponse {
  * 
  * Configure webhook URL in Shopee Open Platform:
  * https://yourdomain.com/api/shopee/webhook
- *
- * OAuth の Redirect URL は別: https://yourdomain.com/api/shopee/callback （webhook と混同しない）
  */
 export async function POST(request: NextRequest) {
-  try {
-    const body = await request.text();
-    const signatureHeader = extractWebhookSignatureHeader(request);
-    const skipVerify = process.env.SHOPEE_WEBHOOK_SKIP_VERIFY === "1";
-    const allowUnsigned =
-      process.env.SHOPEE_WEBHOOK_ALLOW_UNSIGNED === "1";
 
-    /** 接続テストで「ボディなし・署名なし」の POST が来ることがあり、先に 401 になるのを防ぐ */
-    if (!body.trim() && !signatureHeader) {
-      return okWebhookResponse();
-    }
+  console.log('Shopee Push:', await request.text());
 
-    if (!skipVerify && !process.env.SHOPEE_PARTNER_KEY?.trim()) {
-      console.error(
-        "[Webhook] SHOPEE_PARTNER_KEY is not set (Vercel Environment Variables)"
-      );
-      return NextResponse.json(
-        { error: "Server misconfiguration: partner key missing" },
-        { status: 503 }
-      );
-    }
+  // IMPORTANT: always respond 200
+  return NextResponse.json({ message: "OK" }, { status: 200 });
 
-    if (!skipVerify) {
-      const okSig =
-        signatureHeader &&
-        verifyWebhookSignature(body, signatureHeader);
-      const okUnsigned = !signatureHeader && allowUnsigned;
-      if (!okSig && !okUnsigned) {
-        logSignatureDebug(request, signatureHeader);
-        console.error(
-          "[Webhook] Invalid or missing signature (Partner Key と Open Platform のアプリが一致しているか確認。一時的に SHOPEE_WEBHOOK_ALLOW_UNSIGNED=1 で疎通のみ可)"
-        );
-        return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-      }
-      if (okUnsigned) {
-        console.warn(
-          "[Webhook] SHOPEE_WEBHOOK_ALLOW_UNSIGNED=1 — 本番では無効化してください"
-        );
-      }
-    } else {
-      console.warn(
-        "[Webhook] SHOPEE_WEBHOOK_SKIP_VERIFY=1 — 署名検証をスキップしています"
-      );
-    }
+  // try {
+  //   const body = await request.text();
+  //   const signature = request.headers.get("authorization");
 
-    if (!body.trim()) {
-      return okWebhookResponse();
-    }
+  //   // Verify webhook signature
+  //   if (!verifyWebhookSignature(body, signature)) {
+  //     console.error("[Webhook] Invalid signature");
+  //     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+  //   }
 
-    let payload: { code?: number; data?: unknown };
-    try {
-      payload = JSON.parse(body) as { code?: number; data?: unknown };
-    } catch {
-      console.warn("[Webhook] Non-JSON body; acknowledged");
-      return okWebhookResponse();
-    }
-    console.log("[Webhook] Received event:", payload.code, payload);
+  //   const payload = JSON.parse(body);
+  //   console.log("[Webhook] Received event:", payload.code, payload);
 
-    if (payload.code == null) {
-      return okWebhookResponse();
-    }
+  //   // Handle different webhook events
+  //   switch (payload.code) {
+  //     case 1: // New message received
+  //       await handleNewMessage(payload.data);
+  //       break;
 
-    // Handle different webhook events
-    const data = payload.data;
-    switch (payload.code) {
-      case 1: // New message received
-        if (
-          data &&
-          typeof data === "object" &&
-          !Array.isArray(data)
-        ) {
-          await handleNewMessage(
-            data as Parameters<typeof handleNewMessage>[0]
-          );
-        }
-        break;
+  //     case 2: // Message read
+  //       await handleMessageRead(payload.data);
+  //       break;
 
-      case 2: // Message read
-        if (
-          data &&
-          typeof data === "object" &&
-          !Array.isArray(data)
-        ) {
-          await handleMessageRead(
-            data as Parameters<typeof handleMessageRead>[0]
-          );
-        }
-        break;
+  //     case 3: // Conversation pinned/unpinned
+  //       await handleConversationUpdate(payload.data);
+  //       break;
 
-      case 3: // Conversation pinned/unpinned
-        if (
-          data &&
-          typeof data === "object" &&
-          !Array.isArray(data)
-        ) {
-          await handleConversationUpdate(
-            data as Parameters<typeof handleConversationUpdate>[0]
-          );
-        }
-        break;
+  //     case 10: // Shop authorization
+  //       console.log("[Webhook] Shop authorization event");
+  //       break;
 
-      case 10: // Shop authorization
-        console.log("[Webhook] Shop authorization event");
-        break;
+  //     default:
+  //       console.log("[Webhook] Unknown event code:", payload.code);
+  //   }
 
-      default:
-        console.log("[Webhook] Unknown event code:", payload.code);
-    }
-
-    return okWebhookResponse();
-  } catch (error) {
-    console.error("[Webhook] Error:", error);
-    return NextResponse.json(
-      { error: "Webhook processing failed" },
-      { status: 500 }
-    );
-  }
-}
-
-/**
- * Shopee Push: 署名は raw body に対する HMAC-SHA256（hex または base64）。
- * ヘッダ名はリージョン・世代で揺れるため複数候補を見る。
- */
-function extractWebhookSignatureHeader(request: NextRequest): string | null {
-  const names = [
-    "x-shopee-signature",
-    "x-signature",
-    "authorization",
-  ];
-  for (const n of names) {
-    const v = request.headers.get(n);
-    if (v?.trim()) return normalizeSignatureHeaderValue(v);
-  }
-  return null;
-}
-
-function normalizeSignatureHeaderValue(value: string): string {
-  let t = value.trim();
-  if (/^bearer\s+/i.test(t)) {
-    t = t.replace(/^bearer\s+/i, "").trim();
-  }
-  for (const prefix of ["sha256=", "v1=", "hmac-sha256=", "sha256 "]) {
-    if (t.toLowerCase().startsWith(prefix.toLowerCase())) {
-      t = t.slice(prefix.length).trim();
-      break;
-    }
-  }
-  return t.replace(/^["']|["']$/g, "");
-}
-
-function logSignatureDebug(
-  request: NextRequest,
-  signatureHeader: string | null
-): void {
-  const keys = [...request.headers.keys()].filter((k) =>
-    /sig|auth|shopee|token/i.test(k)
-  );
-  console.error(
-    "[Webhook] Signature debug: hasSigHeader=",
-    Boolean(signatureHeader),
-    "relevantHeaderKeys=",
-    keys
-  );
+  //   return NextResponse.json({ success: true });
+  // } catch (error) {
+  //   console.error("[Webhook] Error:", error);
+  //   return NextResponse.json(
+  //     { error: "Webhook processing failed" },
+  //     { status: 500 }
+  //   );
+  // }
 }
 
 /**
@@ -208,40 +79,12 @@ function verifyWebhookSignature(
   const partnerKey = process.env.SHOPEE_PARTNER_KEY;
   if (!partnerKey) return false;
 
-  const h = crypto.createHmac("sha256", partnerKey).update(body, "utf8");
-  const expectedHex = h.digest("hex");
-  const expectedB64 = crypto
+  const expectedSignature = crypto
     .createHmac("sha256", partnerKey)
-    .update(body, "utf8")
-    .digest("base64");
+    .update(body)
+    .digest("hex");
 
-  const sig = signature.trim();
-  if (constantTimeEqualHex(expectedHex, sig)) return true;
-  if (constantTimeEqualString(expectedB64, sig)) return true;
-  /** base64 改行なし比較 */
-  if (constantTimeEqualString(expectedB64, sig.replace(/\s+/g, "")))
-    return true;
-  return false;
-}
-
-function constantTimeEqualHex(aHex: string, b: string): boolean {
-  const a = aHex.toLowerCase();
-  const x = b.toLowerCase().replace(/^0x/, "");
-  if (a.length !== x.length) return false;
-  try {
-    return crypto.timingSafeEqual(Buffer.from(a, "hex"), Buffer.from(x, "hex"));
-  } catch {
-    return a === x;
-  }
-}
-
-function constantTimeEqualString(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  try {
-    return crypto.timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
-  } catch {
-    return a === b;
-  }
+  return signature === expectedSignature;
 }
 
 /**
@@ -268,18 +111,6 @@ async function handleNewMessage(data: {
       timestamp,
       from_id,
     } = data;
-
-    if (
-      conversation_id == null ||
-      String(conversation_id).trim() === "" ||
-      shop_id == null ||
-      !Number.isFinite(Number(shop_id))
-    ) {
-      console.warn(
-        "[Webhook] handleNewMessage: missing conversation_id or shop_id, skip DB"
-      );
-      return;
-    }
 
     console.log(`[Webhook] New message in conversation ${conversation_id}`);
 
@@ -403,33 +234,19 @@ async function handleConversationUpdate(data: {
 }
 
 /**
- * GET /api/shopee/webhook — URL 検証で challenge を返す場合がある（plain / JSON 両対応）
+ * GET /api/shopee/webhook - Webhook verification (if required by Shopee)
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const challenge = searchParams.get("challenge");
 
   if (challenge) {
-    const accept = request.headers.get("accept") ?? "";
-    if (accept.includes("application/json")) {
-      return NextResponse.json({ challenge });
-    }
-    return new NextResponse(challenge, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Cache-Control": "no-store",
-      },
-    });
+    // Return challenge for webhook verification
+    return NextResponse.json({ challenge });
   }
 
-  return NextResponse.json(
-    { message: "Shopee Webhook Endpoint", status: "active" },
-    { status: 200, headers: { "Cache-Control": "no-store" } }
-  );
-}
-
-/** 監視・LB のプローブ用 */
-export async function HEAD() {
-  return new NextResponse(null, { status: 200 });
+  return NextResponse.json({
+    message: "Shopee Webhook Endpoint",
+    status: "active",
+  });
 }
