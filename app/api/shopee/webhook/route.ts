@@ -6,67 +6,62 @@ import { handleAutoReplyOnWebhookMessage } from "@/lib/auto-reply";
 /**
  * Shopee Webhook Receiver
  * POST /api/shopee/webhook
- * 
- * Receives real-time notifications from Shopee:
- * - New messages
- * - Order updates
- * - Shop status changes
- * 
+ *
+ * Shopee Open Platform の Live Push「Push Code」（公式の数値）と payload.code が対応します。
+ * 例（抜粋・ドキュメント準拠）:
+ * - 1  shop_authorization_push
+ * - 2  shop_authorization_canceled_push
+ * - 3  order_status_push
+ * - 10 webchat_push（チャット／Webchat）
+ * - 12 open_api_authorization_expiry
+ * … ほかは Developer Console の Push 一覧を参照。
+ *
+ * 注意: 旧コメントの「1=新着メッセージ」は誤り。チャットは通常 code 10。
+ * 実際の body は必ずログで確認し、data の形に合わせてハンドラを書くこと。
+ *
  * Configure webhook URL in Shopee Open Platform:
  * https://yourdomain.com/api/shopee/webhook
  */
 export async function POST(request: NextRequest) {
 
-  console.log('Shopee Push:');
+  try {
+    const body = await request.text();
+    const signature = request.headers.get("authorization");
 
-  console.log('Shopee Push:', await request.text());
+    // Verify webhook signature
+    if (!verifyWebhookSignature(body, signature)) {
+      console.error("[Webhook] Invalid signature");
+      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+    }
 
-  // IMPORTANT: always respond 200
-  return NextResponse.json({ message: "OK" }, { status: 200 });
+    const payload = JSON.parse(body);
+    console.log("[Webhook] Received event:", payload.code, payload);
 
-  // try {
-  //   const body = await request.text();
-  //   const signature = request.headers.get("authorization");
+    // Handle different webhook events（Push Code は Shopee コンソールの表に従う）
+    switch (payload.code) {
+      case 10: // webchat_push
+        await handleNewMessage(payload.data);
+        break;
 
-  //   // Verify webhook signature
-  //   if (!verifyWebhookSignature(body, signature)) {
-  //     console.error("[Webhook] Invalid signature");
-  //     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-  //   }
+      case 1: // shop_authorization_push
+        console.log("[Webhook] Shop authorization");
+        break;
 
-  //   const payload = JSON.parse(body);
-  //   console.log("[Webhook] Received event:", payload.code, payload);
+      case 3: // order_status_push（必要なら別ハンドラ）
+        break;
 
-  //   // Handle different webhook events
-  //   switch (payload.code) {
-  //     case 1: // New message received
-  //       await handleNewMessage(payload.data);
-  //       break;
+      default:
+        console.log("[Webhook] Unknown event code:", payload.code);
+    }
 
-  //     case 2: // Message read
-  //       await handleMessageRead(payload.data);
-  //       break;
-
-  //     case 3: // Conversation pinned/unpinned
-  //       await handleConversationUpdate(payload.data);
-  //       break;
-
-  //     case 10: // Shop authorization
-  //       console.log("[Webhook] Shop authorization event");
-  //       break;
-
-  //     default:
-  //       console.log("[Webhook] Unknown event code:", payload.code);
-  //   }
-
-  //   return NextResponse.json({ success: true });
-  // } catch (error) {
-  //   console.error("[Webhook] Error:", error);
-  //   return NextResponse.json(
-  //     { error: "Webhook processing failed" },
-  //     { status: 500 }
-  //   );
-  // }
+    return NextResponse.json({ message: "OK" }, { status: 200 });
+  } catch (error) {
+    console.error("[Webhook] Error:", error);
+    return NextResponse.json(
+      { error: "Webhook processing failed" },
+      { status: 500 }
+    );
+  }
 }
 
 /**
