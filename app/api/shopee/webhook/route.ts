@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCollection } from "@/lib/mongodb";
 import { handleAutoReplyOnWebhookMessage } from "@/lib/auto-reply";
+import { syncWebhookConversationFull } from "@/lib/shopee-conversation-db-sync";
 
 /**
  * Shopee Webhook Receiver
@@ -55,90 +56,60 @@ export async function POST(request: NextRequest) {
   }
 }
 
+function numU(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function strU(v: unknown): string {
+  return typeof v === "string" ? v : v != null ? String(v) : "";
+}
+
 /**
- * Handle new message webhook
+ * webchat_push（code 10）: Webhook の data は欠損しがちなため、
+ * Shopee API で全メッセージ + get_one_conversation を取り、DB に同期してから自動返信を予約する。
  */
-async function handleNewMessage(data: {
-  shop_id: number;
-  conversation_id: string;
-  to_id: number;
-  to_name: string;
-  message: string;
-  message_id: string;
-  timestamp: number;
-  from_id: number;
-}) {
+async function handleNewMessage(data: Record<string, unknown>) {
   try {
-    const {
-      shop_id,
-      conversation_id,
-      to_id,
-      to_name,
-      message,
-      message_id,
-      timestamp,
-      from_id,
-    } = data;
+    const shopId = numU(data.shop_id ?? data.shopId);
+    const conversationId = strU(data.conversation_id).trim();
+    if (!shopId || !conversationId) {
+      console.error(
+        "[Webhook] handleNewMessage: missing shop_id or conversation_id",
+        data
+      );
+      return;
+    }
 
-    console.log(`[Webhook] New message in conversation ${conversation_id}`);
+    console.log(`[Webhook] webchat_push conversation=${conversationId} shop=${shopId}`);
 
-    const isStaff = Number(from_id) === Number(shop_id);
-    const buyerId = isStaff ? to_id : from_id;
+    const sync = await syncWebhookConversationFull(shopId, conversationId);
+    if (!sync.ok) {
+      console.error("[Webhook] syncWebhookConversationFull failed:", sync.error);
+      return;
+    }
 
-    const tokenCol = await getCollection<{ shop_id: number; country: string }>(
-      "shopee_tokens"
+    console.log(
+      `[Webhook] DB synced ${sync.messageCount} messages for ${conversationId}`
     );
-    const tokenRow = await tokenCol.findOne({ shop_id });
-    const country = tokenRow?.country
-      ? String(tokenRow.country).toUpperCase()
-      : undefined;
 
-    // Update conversation in database
-    const col = await getCollection<{
-      conversation_id: string;
-      shop_id: number;
-      country?: string;
-      customer_id: number;
-      customer_name: string;
-      last_message: string;
-      last_message_time: Date;
-      unread_count: number;
-      status: string;
-    }>("shopee_conversations");
+    const hint = sync.autoReplyHint;
+    if (!hint) return;
 
-    const setDoc: Record<string, unknown> = {
-      customer_id: buyerId,
-      last_message: message,
-      last_message_time: new Date(timestamp * 1000),
-      status: "active",
-      updated_at: new Date(),
-    };
-    if (country) setDoc.country = country;
-    if (isStaff && to_name) setDoc.customer_name = to_name;
-
-    await col.updateOne(
-      { conversation_id, shop_id },
-      {
-        $set: setDoc,
-        ...(isStaff ? {} : { $inc: { unread_count: 1 } }),
-        $setOnInsert: {
-          conversation_id,
-          shop_id,
-          created_at: new Date(),
-        },
-      },
-      { upsert: true }
-    );
+    const fromId =
+      numU(data.from_id) ||
+      numU(data.from_user_id) ||
+      hint.from_id;
+    const toId = numU(data.to_id) || hint.to_id;
+    const toName = strU(data.to_name) || hint.to_name;
 
     await handleAutoReplyOnWebhookMessage({
-      shop_id,
-      conversation_id,
-      to_id,
-      to_name,
-      from_id,
+      shop_id: shopId,
+      conversation_id: conversationId,
+      to_id: toId,
+      to_name: toName,
+      from_id: fromId,
     });
-
-    console.log(`[Webhook] Conversation ${conversation_id} updated`);
   } catch (error) {
     console.error("[Webhook] handleNewMessage error:", error);
   }
