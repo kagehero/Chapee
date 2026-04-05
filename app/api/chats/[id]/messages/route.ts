@@ -16,6 +16,7 @@ import {
 } from "@/lib/shopee-conversation-utils";
 import { buildBuyerItemUrl, buildSellerOrderUrl } from "@/lib/shopee-order-utils";
 import { kindMapFromLog } from "@/lib/staff-message-kind";
+import { getStoredRawMessagesForConversation } from "@/lib/shopee-conversation-db-sync";
 
 /**
  * GET /api/chats/[id]/messages - Get messages for a conversation
@@ -60,12 +61,19 @@ export async function GET(
       conversation.customer_avatar_url ?? null;
     let shopLogo: string | null = null;
 
+    const storedRaws = await getStoredRawMessagesForConversation(
+      conversation.shop_id,
+      conversationId
+    );
+
     const [msgResult, oneRes, shopRes] = await Promise.allSettled([
-      fetchAllConversationMessages(
-        accessToken,
-        conversation.shop_id,
-        conversationId
-      ),
+      storedRaws.length > 0
+        ? Promise.resolve(storedRaws)
+        : fetchAllConversationMessages(
+            accessToken,
+            conversation.shop_id,
+            conversationId
+          ),
       getOneConversation(accessToken, conversation.shop_id, conversationId),
       getShopInfo(accessToken, conversation.shop_id),
     ]);
