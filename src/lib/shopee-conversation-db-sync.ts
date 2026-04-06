@@ -71,12 +71,6 @@ export async function syncWebhookConversationFull(
   };
 }> {
   try {
-    const accessToken = await getValidToken(shopId);
-    const [rawList, oneRes] = await Promise.all([
-      fetchAllConversationMessages(accessToken, shopId, conversationId),
-      getOneConversation(accessToken, shopId, conversationId),
-    ]);
-
     const tokenCol = await getCollection<{ shop_id: number; country: string }>(
       "shopee_tokens"
     );
@@ -84,6 +78,13 @@ export async function syncWebhookConversationFull(
     const country = tokenRow?.country
       ? String(tokenRow.country).toUpperCase()
       : undefined;
+    const countryOpt = country ? { country } : undefined;
+
+    const accessToken = await getValidToken(shopId);
+    const [rawList, oneRes] = await Promise.all([
+      fetchAllConversationMessages(accessToken, shopId, conversationId, countryOpt),
+      getOneConversation(accessToken, shopId, conversationId, countryOpt),
+    ]);
 
     const convObj = parseOneConversationBody(oneRes);
     const buyerId = Number(convObj?.to_id ?? convObj?.to_user_id ?? 0);

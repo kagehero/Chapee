@@ -4,12 +4,14 @@ import {
   getConversationMessages,
   getOrderDetail,
   getOrderList,
+  SHOPEE_ORDER_LIST_MAX_RANGE_SEC,
 } from "@/lib/shopee-api";
 import { getValidToken } from "@/lib/shopee-token";
 import { textFromShopeeChatMessage } from "@/lib/shopee-conversation-utils";
 import {
   buildSellerOrderUrl,
   collectOrderSnCandidates,
+  pickOrderItemImageUrl,
 } from "@/lib/shopee-order-utils";
 
 type OrderRow = {
@@ -18,6 +20,8 @@ type OrderRow = {
   currency: string;
   total_amount: number;
   item_preview: string;
+  /** 先頭 line item のサムネイル（`item_list` / `image_info` から） */
+  item_image_url?: string;
   item_count: number;
   order_url: string;
 };
@@ -29,11 +33,20 @@ function mapDetailToRow(
   const sn = String(o.order_sn ?? "").trim();
   if (!sn) return null;
   const list = Array.isArray(o.item_list) ? o.item_list : [];
-  const first = list[0] as { item_name?: string; model_name?: string } | undefined;
+  const first = list[0] as
+    | { item_name?: string; model_name?: string }
+    | undefined;
+  const firstObj =
+    first && typeof first === "object"
+      ? (first as Record<string, unknown>)
+      : undefined;
   const preview =
     first?.item_name ||
     first?.model_name ||
     (list.length ? `${list.length} 点` : "");
+  const item_image_url = firstObj
+    ? pickOrderItemImageUrl(firstObj)
+    : undefined;
   const totalRaw = o.total_amount ?? o.order_total_amount ?? o.actual_amount;
   const total =
     typeof totalRaw === "number"
@@ -48,6 +61,7 @@ function mapDetailToRow(
     currency: String(o.currency ?? ""),
     total_amount: Number.isFinite(total) ? total : 0,
     item_preview: preview,
+    ...(item_image_url ? { item_image_url } : {}),
     item_count: list.length,
     order_url: buildSellerOrderUrl(country, sn),
   };
@@ -90,7 +104,8 @@ export async function GET(
       accessToken,
       conversation.shop_id,
       conversationId,
-      { page_size: 100 }
+      { page_size: 100 },
+      { country }
     );
 
     const rawList =
@@ -102,26 +117,39 @@ export async function GET(
     const fromMessages = collectOrderSnCandidates(rawList, textContents);
 
     const now = Math.floor(Date.now() / 1000);
-    const ninetyDays = 90 * 24 * 60 * 60;
+    /** 約 90 日: Shopee は 1 リクエストあたり最大 15 日幅のため、15 日窓を連結する */
+    const lookbackSec = 90 * 24 * 60 * 60;
+    const windowCount = Math.ceil(lookbackSec / SHOPEE_ORDER_LIST_MAX_RANGE_SEC);
     const fromListApi = new Set<string>();
 
     try {
-      const listRes = (await getOrderList(accessToken, conversation.shop_id, {
-        time_range_field: "create_time",
-        time_from: now - ninetyDays,
-        time_to: now,
-        page_size: 100,
-      })) as Record<string, unknown>;
-      const listNested = listRes.response as
-        | Record<string, unknown>
-        | undefined;
-      const orders = (listNested?.order_list ??
-        listRes.order_list ??
-        []) as Record<string, unknown>[];
-      for (const row of orders) {
-        const bid = Number(row.buyer_user_id ?? row.buyer_userid ?? 0);
-        if (bid === buyerId && row.order_sn) {
-          fromListApi.add(String(row.order_sn));
+      for (let w = 0; w < windowCount; w++) {
+        const time_to = now - w * SHOPEE_ORDER_LIST_MAX_RANGE_SEC;
+        const time_from = time_to - SHOPEE_ORDER_LIST_MAX_RANGE_SEC;
+        if (time_from < 0) break;
+
+        const listRes = (await getOrderList(
+          accessToken,
+          conversation.shop_id,
+          {
+            time_range_field: "create_time",
+            time_from,
+            time_to,
+            page_size: 100,
+          },
+          { country }
+        )) as Record<string, unknown>;
+        const listNested = listRes.response as
+          | Record<string, unknown>
+          | undefined;
+        const orders = (listNested?.order_list ??
+          listRes.order_list ??
+          []) as Record<string, unknown>[];
+        for (const row of orders) {
+          const bid = Number(row.buyer_user_id ?? row.buyer_userid ?? 0);
+          if (bid === buyerId && row.order_sn) {
+            fromListApi.add(String(row.order_sn));
+          }
         }
       }
     } catch (e) {
@@ -155,7 +183,8 @@ export async function GET(
         accessToken,
         conversation.shop_id,
         orderSnList,
-        ["item_list", "order_status", "total_amount", "currency"]
+        ["item_list", "order_status", "total_amount", "currency"],
+        { country }
       )) as Record<string, unknown>;
       const detailNested = detailRes.response as
         | Record<string, unknown>

@@ -56,6 +56,9 @@ export async function GET(
     );
 
     const accessToken = await getValidToken(conversation.shop_id);
+    const countryOpt = {
+      country: String(conversation.country || "SG"),
+    };
 
     let customerAvatar: string | null =
       conversation.customer_avatar_url ?? null;
@@ -72,10 +75,16 @@ export async function GET(
         : fetchAllConversationMessages(
             accessToken,
             conversation.shop_id,
-            conversationId
+            conversationId,
+            countryOpt
           ),
-      getOneConversation(accessToken, conversation.shop_id, conversationId),
-      getShopInfo(accessToken, conversation.shop_id),
+      getOneConversation(
+        accessToken,
+        conversation.shop_id,
+        conversationId,
+        countryOpt
+      ),
+      getShopInfo(accessToken, conversation.shop_id, countryOpt),
     ]);
 
     if (msgResult.status === "rejected") {

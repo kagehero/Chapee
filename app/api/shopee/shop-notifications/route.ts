@@ -19,14 +19,20 @@ export async function GET(request: NextRequest) {
     const pageSizeRaw = searchParams.get("page_size");
     const page_size = pageSizeRaw ? parseInt(pageSizeRaw, 10) : undefined;
 
+    const shops = await getConnectedShops();
     let shopId: number;
+    let country: string | undefined;
+
     if (shopIdParam) {
       shopId = parseInt(shopIdParam, 10);
       if (!Number.isFinite(shopId)) {
         return NextResponse.json({ error: "shop_id が不正です" }, { status: 400 });
       }
+      const row = shops.find((s) => s.shop_id === shopId);
+      country = row?.country
+        ? String(row.country).trim() || undefined
+        : undefined;
     } else {
-      const shops = await getConnectedShops();
       if (shops.length === 0) {
         return NextResponse.json(
           { error: "接続済みショップがありません" },
@@ -34,15 +40,23 @@ export async function GET(request: NextRequest) {
         );
       }
       shopId = shops[0].shop_id;
+      country = shops[0].country
+        ? String(shops[0].country).trim() || undefined
+        : undefined;
     }
 
     const accessToken = await getValidToken(shopId);
-    const data = await getShopNotification(accessToken, shopId, {
-      ...(cursor ? { cursor } : {}),
-      ...(page_size != null && Number.isFinite(page_size)
-        ? { page_size }
-        : {}),
-    });
+    const data = await getShopNotification(
+      accessToken,
+      shopId,
+      {
+        ...(cursor ? { cursor } : {}),
+        ...(page_size != null && Number.isFinite(page_size)
+          ? { page_size }
+          : {}),
+      },
+      country ? { country } : undefined
+    );
 
     return NextResponse.json({ shop_id: shopId, ...data });
   } catch (error) {

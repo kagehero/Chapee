@@ -2,10 +2,37 @@ import crypto from "crypto";
 
 const PARTNER_ID = parseInt(process.env.SHOPEE_PARTNER_ID || "0");
 const PARTNER_KEY = process.env.SHOPEE_PARTNER_KEY || "";
-/** 例: 中国など別リージョンは Shopee ドキュメントのホストを指定 */
-const BASE_URL = (
-  process.env.SHOPEE_PARTNER_API_HOST || "https://partner.shopeemobile.com"
-).replace(/\/$/, "");
+
+/** 店舗の `country`（OAuth の `country` / DB の `shopee_tokens.country`）に応じた Partner API ホスト */
+export type ShopeeApiOptions = { country?: string };
+
+/**
+ * Partner API のベース URL。
+ * - `SHOPEE_PARTNER_API_HOST` が最優先（例: サンドボックスやドキュメント記載の地域ホスト）
+ * - 無ければ `SHOPEE_PARTNER_API_ENV=sandbox|test|test-stable|uat` で test-stable
+ * - BR 店舗は `openplatform.shopee.com.br`（グローバル host だと order 系が 404 になることがある）
+ * @see https://open.shopee.com/documents/v2/Developer%20Guide?module
+ */
+export function getShopeeBaseUrl(country?: string): string {
+  const explicit = process.env.SHOPEE_PARTNER_API_HOST?.trim();
+  if (explicit) {
+    return explicit.replace(/\/$/, "");
+  }
+  const env = process.env.SHOPEE_PARTNER_API_ENV?.trim().toLowerCase();
+  if (
+    env === "sandbox" ||
+    env === "test" ||
+    env === "test-stable" ||
+    env === "uat"
+  ) {
+    return "https://partner.test-stable.shopeemobile.com";
+  }
+  const c = (country || "").trim().toUpperCase();
+  if (c === "BR") {
+    return "https://openplatform.shopee.com.br";
+  }
+  return "https://partner.shopeemobile.com";
+}
 
 /**
  * Generate HMAC-SHA256 signature for Shopee API requests
@@ -50,12 +77,17 @@ async function parseShopeeResponseJson(
 /**
  * Exchange authorization code for access token
  */
-export async function getAccessToken(code: string, shopId: number) {
+export async function getAccessToken(
+  code: string,
+  shopId: number,
+  options?: ShopeeApiOptions
+) {
   const path = "/api/v2/auth/token/get";
   const timestamp = Math.floor(Date.now() / 1000);
   const sign = generateSignature(path, timestamp);
+  const base = getShopeeBaseUrl(options?.country);
 
-  const url = `${BASE_URL}${path}?partner_id=${PARTNER_ID}&timestamp=${timestamp}&sign=${sign}`;
+  const url = `${base}${path}?partner_id=${PARTNER_ID}&timestamp=${timestamp}&sign=${sign}`;
 
   const response = await fetch(url, {
     method: "POST",
@@ -84,12 +116,17 @@ export async function getAccessToken(code: string, shopId: number) {
 /**
  * Refresh access token using refresh token
  */
-export async function refreshAccessToken(refreshToken: string, shopId: number) {
+export async function refreshAccessToken(
+  refreshToken: string,
+  shopId: number,
+  options?: ShopeeApiOptions
+) {
   const path = "/api/v2/auth/access_token/get";
   const timestamp = Math.floor(Date.now() / 1000);
   const sign = generateSignature(path, timestamp);
+  const base = getShopeeBaseUrl(options?.country);
 
-  const url = `${BASE_URL}${path}?partner_id=${PARTNER_ID}&timestamp=${timestamp}&sign=${sign}`;
+  const url = `${base}${path}?partner_id=${PARTNER_ID}&timestamp=${timestamp}&sign=${sign}`;
 
   const response = await fetch(url, {
     method: "POST",
@@ -118,13 +155,18 @@ export async function refreshAccessToken(refreshToken: string, shopId: number) {
 /**
  * Get shop information
  */
-export async function getShopInfo(accessToken: string, shopId: number) {
+export async function getShopInfo(
+  accessToken: string,
+  shopId: number,
+  options?: ShopeeApiOptions
+) {
   const path = "/api/v2/shop/get_shop_info";
   const timestamp = Math.floor(Date.now() / 1000);
   const sign = generateSignature(path, timestamp, accessToken, shopId);
+  const base = getShopeeBaseUrl(options?.country);
 
   const url =
-    `${BASE_URL}${path}?` +
+    `${base}${path}?` +
     `partner_id=${PARTNER_ID}&` +
     `timestamp=${timestamp}&` +
     `access_token=${accessToken}&` +
@@ -160,11 +202,13 @@ export async function getShopNotification(
     cursor?: number | string;
     /** 1〜50。省略時は 10 */
     page_size?: number;
-  }
+  },
+  options?: ShopeeApiOptions
 ) {
   const path = "/api/v2/shop/get_shop_notification";
   const timestamp = Math.floor(Date.now() / 1000);
   const sign = generateSignature(path, timestamp, accessToken, shopId);
+  const base = getShopeeBaseUrl(options?.country);
 
   const pageSize =
     params?.page_size == null
@@ -172,7 +216,7 @@ export async function getShopNotification(
       : Math.min(50, Math.max(1, Math.floor(params.page_size)));
 
   let url =
-    `${BASE_URL}${path}?` +
+    `${base}${path}?` +
     `partner_id=${PARTNER_ID}&` +
     `timestamp=${timestamp}&` +
     `access_token=${encodeURIComponent(accessToken)}&` +
@@ -215,18 +259,20 @@ export async function getConversations(
     direction?: "latest" | "older";
     /** Conversation filter: pinned | all | unread */
     listType?: "pinned" | "all" | "unread";
-  }
+  },
+  options?: ShopeeApiOptions
 ) {
   const path = "/api/v2/sellerchat/get_conversation_list";
   const timestamp = Math.floor(Date.now() / 1000);
   const sign = generateSignature(path, timestamp, accessToken, shopId);
+  const base = getShopeeBaseUrl(options?.country);
 
   const direction: "latest" | "older" =
     params?.direction ?? (params?.next_cursor ? "older" : "latest");
   const listType: "pinned" | "all" | "unread" = params?.listType ?? "all";
 
   let url =
-    `${BASE_URL}${path}?` +
+    `${base}${path}?` +
     `partner_id=${PARTNER_ID}&` +
     `timestamp=${timestamp}&` +
     `access_token=${accessToken}&` +
@@ -281,14 +327,16 @@ export async function getConversations(
 export async function getOneConversation(
   accessToken: string,
   shopId: number,
-  conversationId: string
+  conversationId: string,
+  options?: ShopeeApiOptions
 ) {
   const path = "/api/v2/sellerchat/get_one_conversation";
   const timestamp = Math.floor(Date.now() / 1000);
   const sign = generateSignature(path, timestamp, accessToken, shopId);
+  const base = getShopeeBaseUrl(options?.country);
 
   const url =
-    `${BASE_URL}${path}?` +
+    `${base}${path}?` +
     `partner_id=${PARTNER_ID}&` +
     `timestamp=${timestamp}&` +
     `access_token=${accessToken}&` +
@@ -325,14 +373,16 @@ export async function getConversationMessages(
     next_cursor?: string | Record<string, unknown>;
     /** オフセット（cursor が無い環境向け。API が無視する場合あり） */
     offset?: number;
-  }
+  },
+  options?: ShopeeApiOptions
 ) {
   const path = "/api/v2/sellerchat/get_message";
   const timestamp = Math.floor(Date.now() / 1000);
   const sign = generateSignature(path, timestamp, accessToken, shopId);
+  const base = getShopeeBaseUrl(options?.country);
 
   let url =
-    `${BASE_URL}${path}?` +
+    `${base}${path}?` +
     `partner_id=${PARTNER_ID}&` +
     `timestamp=${timestamp}&` +
     `access_token=${accessToken}&` +
@@ -382,7 +432,8 @@ const MESSAGE_FETCH_MAX_PAGES = 40;
 export async function fetchAllConversationMessages(
   accessToken: string,
   shopId: number,
-  conversationId: string
+  conversationId: string,
+  options?: ShopeeApiOptions
 ): Promise<Record<string, unknown>[]> {
   const seen = new Set<string>();
   const all: Record<string, unknown>[] = [];
@@ -410,7 +461,8 @@ export async function fetchAllConversationMessages(
     {
       page_size: MESSAGE_FETCH_PAGE_SIZE,
       direction: "latest",
-    }
+    },
+    options
   )) as Record<string, unknown>;
 
   const firstBatch = extractMessages(first);
@@ -437,7 +489,8 @@ export async function fetchAllConversationMessages(
           page_size: MESSAGE_FETCH_PAGE_SIZE,
           direction: "older",
           next_cursor: nextCursor,
-        }
+        },
+        options
       )) as Record<string, unknown>;
       const batch = extractMessages(data);
       const before = seen.size;
@@ -463,7 +516,8 @@ export async function fetchAllConversationMessages(
         {
           page_size: MESSAGE_FETCH_PAGE_SIZE,
           offset,
-        }
+        },
+        options
       )) as Record<string, unknown>;
       const batch = extractMessages(data);
       if (batch.length === 0) break;
@@ -488,14 +542,16 @@ export async function sendMessage(
   accessToken: string,
   shopId: number,
   toId: number,
-  message: string
+  message: string,
+  options?: ShopeeApiOptions
 ) {
   const path = "/api/v2/sellerchat/send_message";
   const timestamp = Math.floor(Date.now() / 1000);
   const sign = generateSignature(path, timestamp, accessToken, shopId);
+  const base = getShopeeBaseUrl(options?.country);
 
   const url =
-    `${BASE_URL}${path}?` +
+    `${base}${path}?` +
     `partner_id=${PARTNER_ID}&` +
     `timestamp=${timestamp}&` +
     `access_token=${encodeURIComponent(accessToken)}&` +
@@ -531,14 +587,16 @@ export async function sendStickerMessage(
   shopId: number,
   toId: number,
   stickerPackageId: string,
-  stickerId: string
+  stickerId: string,
+  options?: ShopeeApiOptions
 ) {
   const path = "/api/v2/sellerchat/send_message";
   const timestamp = Math.floor(Date.now() / 1000);
   const sign = generateSignature(path, timestamp, accessToken, shopId);
+  const base = getShopeeBaseUrl(options?.country);
 
   const url =
-    `${BASE_URL}${path}?` +
+    `${base}${path}?` +
     `partner_id=${PARTNER_ID}&` +
     `timestamp=${timestamp}&` +
     `access_token=${encodeURIComponent(accessToken)}&` +
@@ -569,8 +627,14 @@ export async function sendStickerMessage(
   return data;
 }
 
+/** Shopee `get_order_list`: `time_to - time_from` must be ≤ 15 days (API returns error otherwise). */
+export const SHOPEE_ORDER_LIST_MAX_RANGE_SEC = 15 * 24 * 60 * 60;
+
 /**
  * Order list (for matching buyer → order_sn)
+ *
+ * Shopee 公式は POST でも可だが、同一 host でも GET のみルーティングされる環境があり POST が 404 HTML になる。
+ * `get_shop_notification` と同様に GET（クエリにフィルタ）で呼ぶ。
  */
 export async function getOrderList(
   accessToken: string,
@@ -581,30 +645,33 @@ export async function getOrderList(
     time_to: number;
     page_size: number;
     cursor?: string;
-  }
+  },
+  options?: ShopeeApiOptions
 ) {
   const path = "/api/v2/order/get_order_list";
   const timestamp = Math.floor(Date.now() / 1000);
   const sign = generateSignature(path, timestamp, accessToken, shopId);
+  const base = getShopeeBaseUrl(options?.country);
 
-  const url =
-    `${BASE_URL}${path}?` +
+  let url =
+    `${base}${path}?` +
     `partner_id=${PARTNER_ID}&` +
     `timestamp=${timestamp}&` +
     `access_token=${encodeURIComponent(accessToken)}&` +
     `shop_id=${shopId}&` +
-    `sign=${sign}`;
+    `sign=${sign}` +
+    `&time_range_field=${encodeURIComponent(params.time_range_field)}` +
+    `&time_from=${params.time_from}` +
+    `&time_to=${params.time_to}` +
+    `&page_size=${params.page_size}`;
+
+  if (params.cursor) {
+    url += `&cursor=${encodeURIComponent(params.cursor)}`;
+  }
 
   const response = await fetch(url, {
-    method: "POST",
+    method: "GET",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      time_range_field: params.time_range_field,
-      time_from: params.time_from,
-      time_to: params.time_to,
-      page_size: params.page_size,
-      ...(params.cursor ? { cursor: params.cursor } : {}),
-    }),
   });
 
   const data = await parseShopeeResponseJson(response, "get_order_list");
@@ -618,41 +685,53 @@ export async function getOrderList(
 
 /**
  * Order detail by order_sn (max 50 per request)
+ *
+ * GET クエリでは `order_sn_list` は **カンマ区切り**（例: `SN1,SN2`）。JSON 配列文字列は
+ * `error_param` / wrong parameters になり得る。POST の JSON ボディとは形式が異なる点に注意。
  */
 export async function getOrderDetail(
   accessToken: string,
   shopId: number,
   orderSnList: string[],
-  responseOptionalFields?: string[]
+  responseOptionalFields?: string[],
+  options?: ShopeeApiOptions
 ) {
   const path = "/api/v2/order/get_order_detail";
   const timestamp = Math.floor(Date.now() / 1000);
   const sign = generateSignature(path, timestamp, accessToken, shopId);
+  const base = getShopeeBaseUrl(options?.country);
 
-  const url =
-    `${BASE_URL}${path}?` +
+  const sns = orderSnList.slice(0, 50);
+  const orderSnQuery = sns.join(",");
+  let url =
+    `${base}${path}?` +
     `partner_id=${PARTNER_ID}&` +
     `timestamp=${timestamp}&` +
     `access_token=${encodeURIComponent(accessToken)}&` +
     `shop_id=${shopId}&` +
-    `sign=${sign}`;
+    `sign=${sign}` +
+    `&order_sn_list=${encodeURIComponent(orderSnQuery)}`;
 
-  const body: Record<string, unknown> = {
-    order_sn_list: orderSnList.slice(0, 50),
-  };
   if (responseOptionalFields?.length) {
-    body.response_optional_fields = responseOptionalFields;
+    url += `&response_optional_fields=${encodeURIComponent(
+      responseOptionalFields.join(",")
+    )}`;
   }
 
+  console.log("getOrderDetail url", url);
+
   const response = await fetch(url, {
-    method: "POST",
+    method: "GET",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
   });
 
   const data = await parseShopeeResponseJson(response, "get_order_detail");
 
   if (data.error) {
+    /** チャット由来の誤検出・他店舗の注文番号などでよくある。呼び出し側は空リスト扱いでよい */
+    if (String(data.error) === "error_not_found") {
+      return { response: { order_list: [] } } as Record<string, unknown>;
+    }
     throw new Error(`Shopee API Error: ${data.message || data.error}`);
   }
 
@@ -662,9 +741,13 @@ export async function getOrderDetail(
 /**
  * Generate Shop Authorization URL for OAuth flow
  */
-export function generateShopAuthUrl(redirectUrl: string): string {
+export function generateShopAuthUrl(
+  redirectUrl: string,
+  options?: ShopeeApiOptions
+): string {
   const path = "/api/v2/shop/auth_partner";
   const timestamp = Math.floor(Date.now() / 1000);
+  const base = getShopeeBaseUrl(options?.country);
 
   const baseString = `${PARTNER_ID}${path}${timestamp}`;
   const sign = crypto
@@ -673,7 +756,7 @@ export function generateShopAuthUrl(redirectUrl: string): string {
     .digest("hex");
 
   const authUrl =
-    `${BASE_URL}${path}?` +
+    `${base}${path}?` +
     `partner_id=${PARTNER_ID}&` +
     `timestamp=${timestamp}&` +
     `sign=${sign}&` +

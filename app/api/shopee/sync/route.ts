@@ -112,11 +112,16 @@ export async function GET(request: NextRequest) {
         const maxPages = 40;
 
         do {
-          const response = await getConversations(accessToken, shop.shop_id, {
-            page_size: 25,
-            direction: nextCursor ? "older" : "latest",
-            next_cursor: nextCursor,
-          });
+          const response = await getConversations(
+            accessToken,
+            shop.shop_id,
+            {
+              page_size: 25,
+              direction: nextCursor ? "older" : "latest",
+              next_cursor: nextCursor,
+            },
+            { country: shop.country }
+          );
 
           const pageList: ShopeeConversation[] =
             response.response?.conversations ??
@@ -152,9 +157,14 @@ export async function GET(request: NextRequest) {
         let newNotificationIds: string[] = [];
         let notifIdsForSnapshot: string[] = prevSnapshot?.notification_ids ?? [];
         try {
-          const notifRaw = await getShopNotification(accessToken, shop.shop_id, {
-            page_size: 25,
-          });
+          const notifRaw = await getShopNotification(
+            accessToken,
+            shop.shop_id,
+            {
+              page_size: 25,
+            },
+            { country: shop.country }
+          );
           const notifJson = {
             shop_id: shop.shop_id,
             ...(notifRaw as Record<string, unknown>),
