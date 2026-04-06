@@ -16,6 +16,7 @@ import {
   dispatchShopNotificationsRefresh,
   sumNewNotificationIdsFromSyncResults,
 } from "@/lib/chapee-shop-notifications-events";
+import { matchChatSearchQuery } from "@/lib/chat-search";
 
 const COUNTRIES = ["全て", "SG", "PH", "MY", "TW", "TH", "VN", "BR"];
 
@@ -42,34 +43,6 @@ const statusConfig = {
   replied: { label: "返信済", color: "text-blue-600 bg-blue-50 border-blue-200", icon: CheckCircle },
   closed: { label: "完了", color: "text-gray-600 bg-gray-50 border-gray-200", icon: XCircle },
 };
-
-/** 検索用に文字列を正規化（トリム・小文字・連続スペースを1つに） */
-function normalizeForSearch(s: string): string {
-  return (s ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-}
-
-/** 検索クエリがチャットにヒットするか（スペース違い・部分一致・複数キーワード対応） */
-function matchSearchQuery(
-  query: string,
-  chat: { customer?: string; product?: string; lastMessage?: string; [key: string]: unknown }
-): boolean {
-  const q = normalizeForSearch(query);
-  if (!q) return true;
-  const tokens = q.split(" ").filter(Boolean);
-  const searchable = normalizeForSearch(
-    [
-      chat.customer ?? "",
-      chat.product ?? "",
-      chat.lastMessage ?? "",
-      (chat as { itemId?: string }).itemId ?? "",
-    ].join(" ")
-  );
-  const searchableNoSpaces = searchable.replace(/\s/g, "");
-  return tokens.every((token) => searchableNoSpaces.includes(normalizeForSearch(token).replace(/\s/g, "")));
-}
 
 export default function ChatsPage() {
   const router = useRouter();
@@ -173,7 +146,7 @@ export default function ChatsPage() {
   const filtered = chats.filter((c) => {
     const matchCountry = selectedCountry === "全て" || c.country === selectedCountry;
     const matchStatus = selectedStatus === "all" || c.uiStatus === selectedStatus;
-    const matchSearch = matchSearchQuery(search, c);
+    const matchSearch = matchChatSearchQuery(search, c);
     const matchUnread = !unreadOnly || c.unread > 0;
     return matchCountry && matchStatus && matchSearch && matchUnread;
   });
