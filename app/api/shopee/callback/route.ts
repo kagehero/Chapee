@@ -68,12 +68,14 @@ export async function GET(request: NextRequest) {
     const shopId = parseInt(shopIdParam);
 
     // Exchange code for access token
-    const tokenData = await getAccessToken(code, shopId);
+    const tokenData = await getAccessToken(code, shopId, { country });
 
     // Get shop info to store shop name
     let shopName = `${country || "SG"} Shop ${shopId}`;
     try {
-      const shopInfo = await getShopInfo(tokenData.access_token, shopId);
+      const shopInfo = await getShopInfo(tokenData.access_token, shopId, {
+        country,
+      });
       shopName = shopInfo.shop_name || shopName;
     } catch (err) {
       console.log("Failed to get shop info, using default name");

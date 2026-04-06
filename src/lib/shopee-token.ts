@@ -7,6 +7,7 @@ import { refreshAccessToken } from "./shopee-api";
 export async function getValidToken(shopId: number): Promise<string> {
   const col = await getCollection<{
     shop_id: number;
+    country?: string;
     access_token: string;
     refresh_token: string;
     expires_at: Date;
@@ -18,6 +19,11 @@ export async function getValidToken(shopId: number): Promise<string> {
     console.error(`[Token] Shop ${shopId} not connected in database`);
     throw new Error(`Shop ${shopId} not connected`);
   }
+
+  const countryOpt =
+    token.country != null && String(token.country).trim() !== ""
+      ? { country: String(token.country) }
+      : undefined;
 
   console.log(`[Token] Found token for shop ${shopId}`);
   console.log(`[Token] Expires at: ${token.expires_at}`);
@@ -33,7 +39,11 @@ export async function getValidToken(shopId: number): Promise<string> {
     console.log(`[Token] Token expiring soon, refreshing for shop ${shopId}...`);
     
     // Refresh token
-    const newToken = await refreshAccessToken(token.refresh_token, shopId);
+    const newToken = await refreshAccessToken(
+      token.refresh_token,
+      shopId,
+      countryOpt
+    );
     
     await col.updateOne(
       { shop_id: shopId },

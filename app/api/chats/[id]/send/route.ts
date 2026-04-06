@@ -69,6 +69,9 @@ export async function POST(
 
     // Get valid access token
     const accessToken = await getValidToken(conversation.shop_id);
+    const countryOpt = {
+      country: String(conversation.country || "SG"),
+    };
 
     const textBody = (message ?? "").trim();
 
@@ -78,13 +81,15 @@ export async function POST(
           conversation.shop_id,
           toId,
           stickerPackageId,
-          stickerId
+          stickerId,
+          countryOpt
         )) as Record<string, unknown>)
       : ((await sendMessage(
           accessToken,
           conversation.shop_id,
           toId,
-          textBody
+          textBody,
+          countryOpt
         )) as Record<string, unknown>);
 
     const tagKind =

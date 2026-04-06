@@ -34,9 +34,15 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const countryParam = new URL(request.url).searchParams.get("country");
+  const country =
+    countryParam && countryParam.trim() !== ""
+      ? countryParam.trim().toUpperCase()
+      : undefined;
+
   let url: string;
   try {
-    url = generateShopAuthUrl(redirectUrl);
+    url = generateShopAuthUrl(redirectUrl, country ? { country } : undefined);
   } catch (e) {
     console.error("generateShopAuthUrl:", e);
     return NextResponse.json(

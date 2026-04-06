@@ -1,6 +1,11 @@
 import { ObjectId } from "mongodb";
 import { getCollection } from "@/lib/mongodb";
-import { sendMessage, getOrderList, getOrderDetail } from "@/lib/shopee-api";
+import {
+  sendMessage,
+  getOrderList,
+  getOrderDetail,
+  SHOPEE_ORDER_LIST_MAX_RANGE_SEC,
+} from "@/lib/shopee-api";
 import { getValidToken } from "@/lib/shopee-token";
 import {
   extractMessageIdFromSendResponse,
@@ -79,24 +84,40 @@ export async function buyerMatchesOrderStatusFilter(
   const allowed = allowedApiStatusesFromJp(selectedJp);
   if (allowed.size === 0) return true;
 
-  const now = Math.floor(Date.now() / 1000);
-  const ninetyDays = 90 * 24 * 60 * 60;
-  const listRes = (await getOrderList(accessToken, shopId, {
-    time_range_field: "create_time",
-    time_from: now - ninetyDays,
-    time_to: now,
-    page_size: 100,
-  })) as Record<string, unknown>;
-  const listNested = listRes.response as Record<string, unknown> | undefined;
-  const orders = (listNested?.order_list ??
-    listRes.order_list ??
-    []) as Record<string, unknown>[];
+  const country = (await getShopCountry(shopId)) ?? undefined;
+  const countryOpt = country ? { country } : undefined;
 
+  const now = Math.floor(Date.now() / 1000);
+  const lookbackSec = 90 * 24 * 60 * 60;
+  const windowCount = Math.ceil(lookbackSec / SHOPEE_ORDER_LIST_MAX_RANGE_SEC);
   const sns: string[] = [];
-  for (const row of orders) {
-    const bid = Number(row.buyer_user_id ?? row.buyer_userid ?? 0);
-    if (bid === buyerUserId && row.order_sn) {
-      sns.push(String(row.order_sn));
+
+  for (let w = 0; w < windowCount; w++) {
+    const time_to = now - w * SHOPEE_ORDER_LIST_MAX_RANGE_SEC;
+    const time_from = time_to - SHOPEE_ORDER_LIST_MAX_RANGE_SEC;
+    if (time_from < 0) break;
+
+    const listRes = (await getOrderList(
+      accessToken,
+      shopId,
+      {
+        time_range_field: "create_time",
+        time_from,
+        time_to,
+        page_size: 100,
+      },
+      countryOpt
+    )) as Record<string, unknown>;
+    const listNested = listRes.response as Record<string, unknown> | undefined;
+    const orders = (listNested?.order_list ??
+      listRes.order_list ??
+      []) as Record<string, unknown>[];
+
+    for (const row of orders) {
+      const bid = Number(row.buyer_user_id ?? row.buyer_userid ?? 0);
+      if (bid === buyerUserId && row.order_sn) {
+        sns.push(String(row.order_sn));
+      }
     }
   }
   if (sns.length === 0) return false;
@@ -105,7 +126,8 @@ export async function buyerMatchesOrderStatusFilter(
     accessToken,
     shopId,
     sns.slice(0, 50),
-    ["order_status"]
+    ["order_status"],
+    countryOpt
   )) as Record<string, unknown>;
   const detailNested = detailRes.response as Record<string, unknown> | undefined;
   const detailList = (detailNested?.order_list ??
@@ -317,7 +339,8 @@ export async function processDueAutoReplies(): Promise<ProcessAutoReplyResult> {
         accessToken,
         shopId,
         buyerId,
-        content
+        content,
+        { country: countryKey }
       )) as Record<string, unknown>;
       const sentId = extractMessageIdFromSendResponse(sendRes);
       if (sentId) {

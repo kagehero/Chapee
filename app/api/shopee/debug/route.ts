@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { getCollection } from "@/lib/mongodb";
+import { getShopeeBaseUrl } from "@/lib/shopee-api";
 
 const PARTNER_ID = parseInt(process.env.SHOPEE_PARTNER_ID || "0");
 const PARTNER_KEY = process.env.SHOPEE_PARTNER_KEY || "";
-const BASE_URL = "https://partner.shopeemobile.com";
 
 /**
  * GET /api/shopee/debug
@@ -53,8 +53,9 @@ export async function GET() {
           .update(baseString)
           .digest("hex");
 
+        const base = getShopeeBaseUrl(token.country);
         const url =
-          `${BASE_URL}${path}?` +
+          `${base}${path}?` +
           `partner_id=${PARTNER_ID}&` +
           `timestamp=${timestamp}&` +
           `access_token=${token.access_token}&` +

@@ -23,6 +23,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useNotificationSounds } from "@/lib/useNotificationSounds";
@@ -349,6 +355,7 @@ type OrderInfo = {
   currency: string;
   total_amount: number;
   item_preview: string;
+  item_image_url?: string;
   item_count: number;
   order_url: string;
 };
@@ -866,37 +873,95 @@ export default function ChatDetailPage() {
                 チャットまたは直近90日の注文一覧から該当する注文が見つかりませんでした。
               </p>
             ) : (
-              <ul className="space-y-2 max-h-[min(40vh,320px)] overflow-y-auto scrollbar-thin">
-                {orders.map((o) => (
-                  <li
-                    key={o.order_sn}
-                    className="rounded-lg border border-border bg-muted/30 px-2.5 py-2 text-xs"
-                  >
-                    <a
-                      href={o.order_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-mono font-semibold text-primary hover:underline inline-flex items-center gap-1 break-all"
-                    >
-                      {o.order_sn}
-                      <ExternalLink size={12} className="shrink-0" />
-                    </a>
-                    <div className="text-muted-foreground mt-0.5">
-                      {[o.order_status, o.currency && o.total_amount > 0 ? `${o.currency} ${o.total_amount.toLocaleString()}` : ""]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </div>
-                    {o.item_preview ? (
-                      <p className="text-foreground mt-1 line-clamp-2">
-                        {o.item_preview}
-                        {o.item_count > 1
-                          ? ` ほか${o.item_count - 1}点`
-                          : ""}
-                      </p>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
+              <TooltipProvider delayDuration={250}>
+                <ul className="space-y-2 max-h-[min(40vh,320px)] overflow-y-auto scrollbar-thin">
+                  {orders.map((o) => {
+                    const nameFull =
+                      o.item_preview +
+                      (o.item_count > 1 ? ` ほか${o.item_count - 1}点` : "");
+                    return (
+                      <li
+                        key={o.order_sn}
+                        className="rounded-lg border border-border bg-muted/30 px-2.5 py-2 text-xs"
+                      >
+                        <a
+                          href={o.order_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono font-semibold text-primary hover:underline inline-flex items-center gap-1 break-all"
+                        >
+                          {o.order_sn}
+                          <ExternalLink size={12} className="shrink-0" />
+                        </a>
+                        <div className="text-muted-foreground mt-0.5">
+                          {[o.order_status, o.currency && o.total_amount > 0 ? `${o.currency} ${o.total_amount.toLocaleString()}` : ""]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </div>
+                        {o.item_preview || o.item_image_url ? (
+                          <div className="mt-1 flex gap-2 items-start min-w-0">
+                            {o.item_image_url ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="shrink-0 rounded-md border border-border bg-muted p-0 cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    aria-label="商品画像を拡大表示"
+                                  >
+                                    <img
+                                      src={o.item_image_url}
+                                      alt=""
+                                      className="w-10 h-10 rounded-md object-cover block"
+                                      loading="lazy"
+                                      referrerPolicy="no-referrer"
+                                      onError={(e) => {
+                                        e.currentTarget.style.display = "none";
+                                      }}
+                                    />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent
+                                  side="right"
+                                  align="start"
+                                  className="p-2 max-w-[min(280px,calc(100vw-2rem))] border bg-popover shadow-lg"
+                                >
+                                  <img
+                                    src={o.item_image_url}
+                                    alt=""
+                                    className="max-h-64 max-w-full w-auto rounded-md object-contain"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : null}
+                            {o.item_preview ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="text-foreground line-clamp-2 min-w-0 flex-1 text-left cursor-default border-b border-dotted border-transparent hover:border-muted-foreground/40">
+                                    {o.item_preview}
+                                    {o.item_count > 1
+                                      ? ` ほか${o.item_count - 1}点`
+                                      : ""}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent
+                                  side="bottom"
+                                  align="start"
+                                  className="max-w-sm text-xs leading-relaxed"
+                                >
+                                  <p className="whitespace-pre-wrap break-words">
+                                    {nameFull}
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </TooltipProvider>
             )}
           </div>
         </>

@@ -89,3 +89,38 @@ export function collectOrderSnCandidates(
 
   return found;
 }
+
+/**
+ * `get_order_detail` の `item_list[]` からサムネイル URL を取る（フィールド名は API で揺れる）
+ */
+export function pickOrderItemImageUrl(
+  item: Record<string, unknown>
+): string | undefined {
+  const http = (v: unknown): string | undefined =>
+    typeof v === "string" && /^https?:\/\//i.test(v.trim()) ? v.trim() : undefined;
+
+  const direct =
+    http(item.image_url) ??
+    http(item.item_image) ??
+    http(item.item_image_url) ??
+    http(item.thumbnail_url) ??
+    http(item.model_image);
+  if (direct) return direct;
+
+  const ii = item.image_info;
+  if (ii && typeof ii === "object") {
+    const o = ii as Record<string, unknown>;
+    const fromNested =
+      http(o.image_url) ?? http(o.thumbnail_url) ?? http(o.url);
+    if (fromNested) return fromNested;
+    const list = o.image_url_list;
+    if (Array.isArray(list)) {
+      for (const u of list) {
+        const s = http(u);
+        if (s) return s;
+      }
+    }
+  }
+
+  return undefined;
+}

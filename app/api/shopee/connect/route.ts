@@ -20,7 +20,9 @@ export async function POST(request: NextRequest) {
     const shopId = parseInt(shop_id);
 
     // Exchange code for access token
-    const tokenData = await getAccessToken(code, shopId);
+    const tokenData = await getAccessToken(code, shopId, {
+      country: country || "SG",
+    });
 
     // Store token in database
     const col = await getCollection<{
