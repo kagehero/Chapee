@@ -1119,12 +1119,18 @@ export default function ChatDetailPage() {
                       <span className="text-muted-foreground text-xs tabular-nums">
                         {msg.datetime ?? msg.time}
                       </span>
-                      {msg.sender === "customer" &&
-                        (msg.content_kind ?? "text") === "text" && (
+                      {(msg.content_kind ?? "text") === "text" &&
+                        msg.content.trim().length > 0 && (
                         <button
+                          type="button"
                           onClick={() => handleTranslate(msg.id, msg.content)}
                           className="text-xs text-primary hover:text-primary-dark flex items-center gap-1 transition-colors"
                           disabled={translating === msg.id}
+                          title={
+                            msg.sender === "staff"
+                              ? "自分が送ったメッセージを翻訳"
+                              : "バイヤーのメッセージを翻訳"
+                          }
                         >
                           <Languages size={11} />
                           {translating === msg.id ? "翻訳中..." : "翻訳"}
