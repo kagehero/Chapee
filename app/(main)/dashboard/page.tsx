@@ -7,9 +7,12 @@ import {
   MessageSquare, Clock, AlertCircle,
   ChevronRight, RefreshCw, Loader2, Settings,
   ShoppingCart, Bell, TrendingUp, CheckCircle2, XCircle,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { matchChatSearchQuery } from "@/lib/chat-search";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { useNotificationSounds } from "@/lib/useNotificationSounds";
 import { getNotificationSoundsEnabled } from "@/lib/notification-sound-settings";
@@ -113,6 +116,7 @@ export default function DashboardPage() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const backgroundSyncInFlightRef = useRef(false);
   /** Misconfigured redirect (e.g. Google): user pastes ?code=&shop_id= onto this page */
   const oauthRecoveryRef = useRef(false);
@@ -300,6 +304,22 @@ export default function DashboardPage() {
     });
   }, [chats]);
 
+  const dashboardRecentChats = useMemo(() => {
+    const q = search.trim();
+    const list = q
+      ? chatsSortedUnreadFirst.filter((c) =>
+          matchChatSearchQuery(search, {
+            customer: c.customer,
+            lastMessage: c.lastMessage,
+            country: c.country,
+            id: c.id,
+            customer_id: c.customer_id,
+          })
+        )
+      : chatsSortedUnreadFirst;
+    return list.slice(0, 5);
+  }, [chatsSortedUnreadFirst, search]);
+
   const stats = [
     { label: "バイヤーチャット", value: buyerChats.length, icon: ShoppingCart, color: "text-blue-600", bg: "bg-blue-50 border-blue-200" },
     { label: "Shopee通知", value: notificationChats.length, icon: Bell, color: "text-amber-600", bg: "bg-amber-50 border-amber-200" },
@@ -360,6 +380,18 @@ export default function DashboardPage() {
             </>
           )}
         </Button>
+      </div>
+
+      <div className="relative max-w-2xl">
+        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+        <Input
+          type="search"
+          placeholder="顧客名・メッセージ・国・会話IDで検索（スペース区切りで複数キーワード可）"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-10 h-11 rounded-xl border-gray-200 bg-white shadow-sm"
+          aria-label="チャット検索"
+        />
       </div>
 
       {totalUnreadMessages > 0 && (
@@ -530,9 +562,24 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
+          ) : dashboardRecentChats.length === 0 && search.trim() ? (
+            <div className="py-12 text-center text-gray-500 text-sm px-4">
+              <Search className="mx-auto mb-3 text-gray-300" size={36} />
+              <p className="text-gray-900 font-medium">検索に一致する会話がありません</p>
+              <p className="text-xs mt-1 text-gray-500">条件を変えるか、チャット一覧で詳しく探してください</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-4 rounded-xl border-gray-200"
+                onClick={() => router.push("/chats")}
+              >
+                チャット一覧へ
+              </Button>
+            </div>
           ) : (
-            // 未読優先で最大5件（ダッシュボードは概要）
-            chatsSortedUnreadFirst.slice(0, 5).map((chat, index) => {
+            // 未読優先で最大5件（ダッシュボードは概要）。検索時は条件に合うものから最大5件
+            dashboardRecentChats.map((chat, index) => {
               const typeConfig = chatTypeConfig[chat.type || "buyer"];
               const TypeIcon = typeConfig.icon;
               return (
