@@ -24,16 +24,6 @@ export async function GET(request: NextRequest) {
     process.env.SHOPEE_REDIRECT_URL?.trim() ||
     new URL("/api/shopee/callback", request.url).toString();
 
-  if (/google\.com/i.test(redirectUrl)) {
-    return NextResponse.json(
-      {
-        error:
-          "SHOPEE_REDIRECT_URL が Google 等になっています。Shopee Open Platform の Redirect URL と .env を、本アプリの https://<ドメイン>/api/shopee/callback と完全一致させてください。",
-      },
-      { status: 400 }
-    );
-  }
-
   const countryParam = new URL(request.url).searchParams.get("country");
   const country =
     countryParam && countryParam.trim() !== ""

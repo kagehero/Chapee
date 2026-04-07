@@ -200,7 +200,7 @@ export default function DashboardPage() {
           body: JSON.stringify({
             code,
             shop_id: shopId,
-            country: "SG",
+            country: params.get("country") || "SG",
           }),
         });
         const data = (await res.json()) as { error?: string };

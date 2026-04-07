@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ShoppingBag, Eye, EyeOff, Mail, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import AuthLayout from "@/components/AuthLayout";
 
 export default function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -34,7 +35,18 @@ export default function LoginForm() {
         setLoading(false);
         return;
       }
-      router.push("/dashboard");
+      const code = searchParams.get("code");
+      const shopId = searchParams.get("shop_id");
+      const country = searchParams.get("country");
+      if (code && shopId) {
+        const q = new URLSearchParams();
+        q.set("code", code);
+        q.set("shop_id", shopId);
+        if (country) q.set("country", country);
+        router.push(`/dashboard?${q.toString()}`);
+      } else {
+        router.push("/dashboard");
+      }
       router.refresh();
     } catch {
       setError("通信エラーが発生しました");
