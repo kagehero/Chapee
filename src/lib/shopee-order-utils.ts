@@ -122,5 +122,21 @@ export function pickOrderItemImageUrl(
     }
   }
 
+  /** `get_item_base_info` 等は `image.image_url_list` を返す */
+  const im = item.image;
+  if (im && typeof im === "object" && !Array.isArray(im)) {
+    const o = im as Record<string, unknown>;
+    const fromNested =
+      http(o.image_url) ?? http(o.thumbnail_url) ?? http(o.url);
+    if (fromNested) return fromNested;
+    const list = o.image_url_list;
+    if (Array.isArray(list)) {
+      for (const u of list) {
+        const s = http(u);
+        if (s) return s;
+      }
+    }
+  }
+
   return undefined;
 }

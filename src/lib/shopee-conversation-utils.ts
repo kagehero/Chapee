@@ -168,6 +168,8 @@ export type ShopeeMessageDisplay = {
     name?: string;
     image_url?: string;
     shop_id?: string;
+    /** 注文カードではなく商品を出すとき、紐づく注文があれば補足表示用 */
+    related_order_sn?: string;
   };
   order?: { order_sn?: string };
   sticker?: {
@@ -199,6 +201,38 @@ function absorbJsonObject(target: Record<string, unknown>, raw: unknown): void {
   }
 }
 
+function assignIfObject(
+  flat: Record<string, unknown>,
+  raw: unknown
+): void {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    Object.assign(flat, raw as Record<string, unknown>);
+  }
+}
+
+/**
+ * Shopee は商品カードを `content.item` / `item_card` 等にネストして返すことがある。
+ * ルート直下の `item` だけでは item_id が取れないため、ネストをフラットに寄せる。
+ */
+function mergeNestedItemLikeIntoFlat(
+  flat: Record<string, unknown>,
+  obj: unknown,
+  depth: number
+): void {
+  if (depth <= 0 || obj == null || typeof obj !== "object" || Array.isArray(obj)) return;
+  const o = obj as Record<string, unknown>;
+  for (const key of [
+    "item",
+    "item_card",
+    "item_info",
+    "product",
+    "product_card",
+    "goods",
+  ]) {
+    assignIfObject(flat, o[key]);
+  }
+}
+
 /** message / content をフラット化（JSON 文字列も展開）してキー検索しやすくする */
 export function flattenShopeeChatPayload(msg: Record<string, unknown>): Record<string, unknown> {
   const flat: Record<string, unknown> = { ...msg };
@@ -208,15 +242,38 @@ export function flattenShopeeChatPayload(msg: Record<string, unknown>): Record<s
   if (item && typeof item === "object" && !Array.isArray(item)) {
     Object.assign(flat, item as Record<string, unknown>);
   }
+  assignIfObject(flat, msg.item_card);
+  assignIfObject(flat, msg.item_info);
+  assignIfObject(flat, msg.product);
+  mergeNestedItemLikeIntoFlat(flat, msg.message, 2);
+  mergeNestedItemLikeIntoFlat(flat, msg.content, 2);
   const sticker = msg.sticker;
   if (sticker && typeof sticker === "object" && !Array.isArray(sticker)) {
     Object.assign(flat, sticker as Record<string, unknown>);
   }
   const order = msg.order;
   if (order && typeof order === "object" && !Array.isArray(order)) {
-    Object.assign(flat, order as Record<string, unknown>);
+    const orec = order as Record<string, unknown>;
+    Object.assign(flat, orec);
+    const il = orec.item_list;
+    if (Array.isArray(il) && il.length > 0 && il[0] && typeof il[0] === "object") {
+      Object.assign(flat, il[0] as Record<string, unknown>);
+    }
   }
   return flat;
+}
+
+/** 本文・リンクに含まれる Shopee 商品 URL から item_id / shop_id を拾う */
+function extractProductIdsFromText(text: string | undefined): {
+  shop_id?: string;
+  item_id?: string;
+} {
+  if (!text || !text.trim()) return {};
+  const m = text.match(/\/product\/(\d+)\/(\d+)/);
+  if (m) {
+    return { shop_id: m[1], item_id: m[2] };
+  }
+  return {};
 }
 
 function findOrderSnDeep(obj: unknown): string | undefined {
@@ -282,6 +339,28 @@ function pickImageUrlFromPayload(
     const v = flat[k];
     if (typeof v === "string" && /^https?:\/\//i.test(v)) return v;
   }
+  const ii = flat.image_info;
+  if (ii && typeof ii === "object" && !Array.isArray(ii)) {
+    const io = ii as Record<string, unknown>;
+    const list = io.image_url_list;
+    if (Array.isArray(list) && list[0] && typeof list[0] === "string") {
+      const u = list[0].trim();
+      if (/^https?:\/\//i.test(u)) return u;
+    }
+    const single = io.image_url ?? io.thumbnail_url;
+    if (typeof single === "string" && /^https?:\/\//i.test(single)) return single;
+  }
+  const imgBlock = flat.image;
+  if (imgBlock && typeof imgBlock === "object" && !Array.isArray(imgBlock)) {
+    const io = imgBlock as Record<string, unknown>;
+    const list = io.image_url_list;
+    if (Array.isArray(list) && list[0] && typeof list[0] === "string") {
+      const u = list[0].trim();
+      if (/^https?:\/\//i.test(u)) return u;
+    }
+    const single = io.image_url ?? io.thumbnail_url;
+    if (typeof single === "string" && /^https?:\/\//i.test(single)) return single;
+  }
   const walkUrls = (o: unknown): string[] => {
     const out: string[] = [];
     const w = (x: unknown) => {
@@ -330,16 +409,34 @@ export function displayFromShopeeChatMessage(msg: Record<string, unknown>): Shop
     return undefined;
   };
 
-  let orderSn = pickString(flat, ["order_sn", "ordersn"]);
+  const explicitOrderSn = pickString(flat, ["order_sn", "ordersn"]);
+  let orderSn = explicitOrderSn;
   if (!orderSn && (mt.includes("order") || mt.includes("notification"))) {
     orderSn = findOrderSnDeep(flat) ?? findOrderSnDeep(msg);
   }
 
-  const itemId = pickString(flat, ["item_id", "itemid", "item_id_str", "itemid_str"]);
-  const itemName = pickString(flat, ["item_name", "name", "item_title", "title", "product_name"]);
+  let resolvedItemId = pickString(flat, [
+    "item_id",
+    "itemid",
+    "item_id_str",
+    "itemid_str",
+  ]);
+  const itemName = pickString(flat, [
+    "item_name",
+    "name",
+    "item_title",
+    "title",
+    "product_name",
+    "product_title",
+  ]);
+  let resolvedShopId = pickString(flat, ["shop_id", "shopid"]);
+  const textBlob = [plainTextEarly(), pickString(flat, ["text"])].filter(Boolean).join("\n");
+  const fromUrl = extractProductIdsFromText(textBlob);
+  if (!resolvedItemId && fromUrl.item_id) resolvedItemId = fromUrl.item_id;
+  if (!resolvedShopId && fromUrl.shop_id) resolvedShopId = fromUrl.shop_id;
+
   const itemNameResolved =
     itemName || (mt.includes("item") ? pickString(flat, ["text"]) : undefined);
-  const shopId = pickString(flat, ["shop_id", "shopid"]);
   const img = pickImageUrlFromPayload(flat, msg, mt);
 
   /** message_type が数値や別名でも、sticker 系フィールドがあればスタンプとして扱う */
@@ -363,28 +460,51 @@ export function displayFromShopeeChatMessage(msg: Record<string, unknown>): Shop
     };
   }
 
+  /**
+   * 注文カードより商品カードを優先（未購入の問い合わせでは注文番号より商品が重要）
+   */
+  const looksLikeProductMessage =
+    mt.includes("item") ||
+    mt.includes("item_card") ||
+    mt.includes("product") ||
+    mt.includes("product_card") ||
+    mt.includes("inquiry") ||
+    mt.includes("listing") ||
+    !!resolvedItemId ||
+    !!itemName ||
+    !!itemNameResolved;
+
+  /** 商品を主表示にしつつ、注文文脈が明確なときだけ注文番号を補足する */
+  const showRelatedOrderSn =
+    !!orderSn &&
+    (!!explicitOrderSn ||
+      mt.includes("order_notification") ||
+      mt.includes("order_card") ||
+      (mt.includes("order") && mt.includes("notification")));
+
+  if (looksLikeProductMessage) {
+    return {
+      kind: "item",
+      summary: itemNameResolved
+        ? `商品: ${itemNameResolved}`
+        : resolvedItemId
+          ? `商品 (item_id: ${resolvedItemId})`
+          : "商品",
+      item: {
+        item_id: resolvedItemId,
+        name: itemNameResolved,
+        image_url: img,
+        shop_id: resolvedShopId,
+        ...(showRelatedOrderSn ? { related_order_sn: orderSn } : {}),
+      },
+    };
+  }
+
   if (mt.includes("order") || mt.includes("order_notification") || orderSn) {
     return {
       kind: "order",
       summary: orderSn ? `注文番号: ${orderSn}` : "注文情報",
       order: { order_sn: orderSn },
-    };
-  }
-
-  if (mt.includes("item") || itemId || itemNameResolved || itemName) {
-    return {
-      kind: "item",
-      summary: itemNameResolved
-        ? `商品: ${itemNameResolved}`
-        : itemId
-          ? `商品 (item_id: ${itemId})`
-          : "商品",
-      item: {
-        item_id: itemId,
-        name: itemNameResolved,
-        image_url: img,
-        shop_id: shopId,
-      },
     };
   }
 

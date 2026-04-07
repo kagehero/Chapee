@@ -57,7 +57,13 @@ type Message = {
   content: string;
   time: string;
   content_kind?: MessageContentKind;
-  item_card?: { item_id?: string; name?: string; image_url?: string; shop_id?: string };
+  item_card?: {
+    item_id?: string;
+    name?: string;
+    image_url?: string;
+    shop_id?: string;
+    related_order_sn?: string;
+  };
   order_card?: { order_sn?: string };
   sticker_card?: { image_url?: string; sticker_id?: string; package_id?: string };
   image_card?: { url?: string };
@@ -110,7 +116,7 @@ function ChatMessageBody({ msg, isStaff }: { msg: Message; isStaff: boolean }) {
           {msg.item_card?.image_url ? (
             <img
               src={msg.item_card.image_url}
-              alt=""
+              alt={msg.item_card?.name?.trim() || "商品"}
               className="w-16 h-16 rounded-md object-cover shrink-0 border border-black/10"
             />
           ) : null}
@@ -121,6 +127,11 @@ function ChatMessageBody({ msg, isStaff }: { msg: Message; isStaff: boolean }) {
             </p>
             {msg.item_card?.item_id ? (
               <p className="text-[10px] opacity-70 mt-1 tabular-nums">ID: {msg.item_card.item_id}</p>
+            ) : null}
+            {msg.item_card?.related_order_sn ? (
+              <p className="text-[10px] opacity-70 mt-1 font-mono break-all">
+                関連注文: {msg.item_card.related_order_sn}
+              </p>
             ) : null}
             {msg.item_url ? (
               <a
@@ -385,6 +396,8 @@ export default function ChatDetailPage() {
   const lastMessageCountRef = useRef(0);
   /** テンプレ選択直後の ID（送信時に本文一致なら「テンプレ」扱い） */
   const pendingTemplateIdRef = useRef<string | null>(null);
+  /** 連打で同一メッセージが複数送信されるのを防ぐ（setState より先に同期ガード） */
+  const sendLockRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
 
@@ -428,6 +441,35 @@ export default function ChatDetailPage() {
           image_url: c?.image_url,
         });
       }
+    }
+    return Array.from(m.values());
+  }, [messages]);
+
+  /** 会話メッセージから商品カードを集約（未注文の問い合わせでもサイドで確認できるように） */
+  const relatedProductsFromChat = useMemo(() => {
+    const m = new Map<
+      string,
+      {
+        item_id?: string;
+        name: string;
+        image_url?: string;
+        item_url?: string;
+      }
+    >();
+    for (const msg of messages) {
+      if (msg.content_kind !== "item") continue;
+      const card = msg.item_card;
+      const id = card?.item_id?.trim();
+      const name = (card?.name ?? msg.content ?? "").trim();
+      if (!id && !name) continue;
+      const key = id || `name:${name}`;
+      if (m.has(key)) continue;
+      m.set(key, {
+        ...(id ? { item_id: id } : {}),
+        name: name || "商品",
+        image_url: card?.image_url,
+        item_url: msg.item_url,
+      });
     }
     return Array.from(m.values());
   }, [messages]);
@@ -653,6 +695,8 @@ export default function ChatDetailPage() {
     stickerPackageId: string,
     stickerRowId: string
   ) => {
+    if (sendLockRef.current || sending) return;
+    sendLockRef.current = true;
     setSending(true);
     try {
       const res = await fetch(`/api/chats/${encodeURIComponent(id)}/send`, {
@@ -699,11 +743,13 @@ export default function ChatDetailPage() {
         error instanceof Error ? error.message : "スタンプの送信に失敗しました"
       );
     } finally {
+      sendLockRef.current = false;
       setSending(false);
     }
   };
 
   const handleSend = async () => {
+    if (sendLockRef.current || sending) return;
     if (!inputMessage.trim() && attachedFiles.length === 0) return;
 
     const tplId = pendingTemplateIdRef.current;
@@ -716,6 +762,7 @@ export default function ChatDetailPage() {
       inputMessage.trim() === tplRow.content.trim();
     const staffSendKind: StaffSendKind = isTplSend ? "template" : "manual";
 
+    sendLockRef.current = true;
     setSending(true);
     try {
       const res = await fetch(`/api/chats/${encodeURIComponent(id)}/send`, {
@@ -755,6 +802,7 @@ export default function ChatDetailPage() {
       console.error("Send error:", error);
       toast.error(error instanceof Error ? error.message : "送信に失敗しました");
     } finally {
+      sendLockRef.current = false;
       setSending(false);
     }
   };
@@ -858,6 +906,63 @@ export default function ChatDetailPage() {
             </div>
           </div>
 
+          {relatedProductsFromChat.length > 0 ? (
+            <div className="bg-card rounded-xl border border-border shadow-card p-4 space-y-2">
+              <div className="flex items-center gap-2 pb-1 border-b border-border">
+                <ShoppingBag size={14} className="text-primary" />
+                <p className="text-foreground font-semibold text-sm">
+                  関連商品（チャット）
+                </p>
+              </div>
+              <TooltipProvider delayDuration={250}>
+                <ul className="space-y-2 max-h-[min(36vh,280px)] overflow-y-auto scrollbar-thin">
+                  {relatedProductsFromChat.map((p, i) => (
+                    <li
+                      key={p.item_id ?? `n-${i}-${p.name}`}
+                      className="rounded-lg border border-border bg-muted/30 px-2.5 py-2 text-xs"
+                    >
+                      <div className="flex gap-2 items-start min-w-0">
+                        {p.image_url ? (
+                          <img
+                            src={p.image_url}
+                            alt=""
+                            className="w-10 h-10 rounded-md object-cover shrink-0 border border-border"
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              e.currentTarget.style.display = "none";
+                            }}
+                          />
+                        ) : null}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-foreground font-medium line-clamp-3 leading-snug">
+                            {p.name}
+                          </p>
+                          {p.item_id ? (
+                            <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
+                              ID: {p.item_id}
+                            </p>
+                          ) : null}
+                          {p.item_url ? (
+                            <a
+                              href={p.item_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-primary font-medium mt-1 hover:underline"
+                            >
+                              商品ページ
+                              <ExternalLink size={12} className="shrink-0" />
+                            </a>
+                          ) : null}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </TooltipProvider>
+            </div>
+          ) : null}
+
           <div className="bg-card rounded-xl border border-border shadow-card p-4 space-y-2">
             <div className="flex items-center gap-2 pb-1 border-b border-border">
               <Package size={14} className="text-primary" />
@@ -870,7 +975,18 @@ export default function ChatDetailPage() {
               </div>
             ) : orders.length === 0 ? (
               <p className="text-xs text-muted-foreground leading-relaxed">
-                チャットまたは直近90日の注文一覧から該当する注文が見つかりませんでした。
+                直近90日の注文一覧から該当する注文が見つかりませんでした。
+                {relatedProductsFromChat.length > 0 ? (
+                  <>
+                    {" "}
+                    上の「関連商品」またはメッセージ内の商品カードをご確認ください。
+                  </>
+                ) : (
+                  <>
+                    {" "}
+                    未購入のお問い合わせの場合は、メッセージ内の商品カードが表示されます。
+                  </>
+                )}
               </p>
             ) : (
               <TooltipProvider delayDuration={250}>
@@ -1421,17 +1537,21 @@ export default function ChatDetailPage() {
               placeholder="メッセージを入力..."
               value={inputMessage}
               onChange={e => setInputMessage(e.target.value)}
+              disabled={sending}
               className="resize-none text-sm min-h-[72px] min-w-0 flex-1"
               onKeyDown={e => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault();
-                  handleSend();
+                  if (!sending) void handleSend();
                 }
               }}
             />
             <Button
-              onClick={handleSend}
-              className="gradient-primary text-primary-foreground shadow-green self-end h-10 sm:h-10 px-4 min-h-[44px] flex-shrink-0 gap-2"
+              type="button"
+              onClick={() => void handleSend()}
+              disabled={sending}
+              aria-busy={sending}
+              className="gradient-primary text-primary-foreground shadow-green self-end h-10 sm:h-10 px-4 min-h-[44px] flex-shrink-0 gap-2 disabled:opacity-60"
             >
               <Send size={14} />
             </Button>

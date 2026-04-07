@@ -242,6 +242,60 @@ export async function getShopNotification(
   return data;
 }
 
+const ITEM_BASE_INFO_MAX_IDS = 50;
+
+/**
+ * 商品マスタ（チャットの item_id から商品名・メイン画像を補完する）
+ *
+ * 公式は **GET**（クエリに `item_id_list`）。POST は環境によって 404 / 非対応になることがある。
+ * @see https://open.shopee.com/documents/v2/v2.product.get_item_base_info?module=89&type=1
+ */
+export async function getItemBaseInfo(
+  accessToken: string,
+  shopId: number,
+  itemIdList: number[],
+  options?: ShopeeApiOptions
+): Promise<Record<string, unknown>> {
+  const path = "/api/v2/product/get_item_base_info";
+  const timestamp = Math.floor(Date.now() / 1000);
+  const sign = generateSignature(path, timestamp, accessToken, shopId);
+  const base = getShopeeBaseUrl(options?.country);
+
+  const ids = itemIdList
+    .map((n) => Math.floor(Number(n)))
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .slice(0, ITEM_BASE_INFO_MAX_IDS);
+
+  if (ids.length === 0) {
+    return { response: { item_list: [] } };
+  }
+
+  /** GET の `item_id_list` は JSON 配列文字列ではなく **カンマ区切り**（`order_sn_list` と同様）。`[123]` だと strconv.ParseUint が失敗する */
+  const itemIdListParam = encodeURIComponent(ids.join(","));
+
+  const url =
+    `${base}${path}?` +
+    `partner_id=${PARTNER_ID}&` +
+    `timestamp=${timestamp}&` +
+    `access_token=${encodeURIComponent(accessToken)}&` +
+    `shop_id=${shopId}&` +
+    `sign=${sign}` +
+    `&item_id_list=${itemIdListParam}`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  });
+
+  const data = await parseShopeeResponseJson(response, "get_item_base_info");
+
+  if (data.error) {
+    throw new Error(`Shopee API Error: ${String(data.message ?? data.error)}`);
+  }
+
+  return data;
+}
+
 /**
  * Get seller chat conversations list
  *
