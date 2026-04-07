@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { SHOPEE_MARKET_CODES } from "@/lib/shopee-markets";
 
 const APP_ICON = "/icon.png";
 
@@ -42,7 +43,7 @@ export default function AuthLayout({
           </p>
 
           <div className="mt-10 grid grid-cols-3 gap-4">
-            {["SG", "PH", "MY", "TW", "TH", "VN", "BR"].map((country) => (
+            {SHOPEE_MARKET_CODES.map((country) => (
               <div
                 key={country}
                 className="bg-primary-foreground/15 backdrop-blur-sm border border-primary-foreground/20 rounded-xl p-3 text-primary-foreground text-sm font-medium"

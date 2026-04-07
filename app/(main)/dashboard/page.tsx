@@ -21,8 +21,9 @@ import {
   dispatchShopNotificationsRefresh,
   sumNewNotificationIdsFromSyncResults,
 } from "@/lib/chapee-shop-notifications-events";
+import { marketFilterChipsWithAll } from "@/lib/shopee-markets";
 
-const COUNTRIES = ["全て", "SG", "PH", "MY", "TW", "TH", "VN", "BR"];
+const COUNTRIES = marketFilterChipsWithAll();
 
 /** ダッシュボード表示中の自動同期間隔（ミリ秒） */
 const DASHBOARD_AUTO_SYNC_INTERVAL_MS = 60 * 60 * 1000;

@@ -18,7 +18,9 @@ import {
 } from "@/lib/chapee-shop-notifications-events";
 import { matchChatSearchQuery } from "@/lib/chat-search";
 
-const COUNTRIES = ["全て", "SG", "PH", "MY", "TW", "TH", "VN", "BR"];
+import { marketFilterChipsWithAll } from "@/lib/shopee-markets";
+
+const COUNTRIES = marketFilterChipsWithAll();
 
 type ChatStatus = "open" | "replied" | "closed";
 

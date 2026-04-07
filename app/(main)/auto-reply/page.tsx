@@ -15,8 +15,9 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { SHOPEE_MARKET_CODES } from "@/lib/shopee-markets";
 
-const COUNTRIES = ["SG", "PH", "MY", "TW", "TH", "VN", "BR"];
+const COUNTRIES = [...SHOPEE_MARKET_CODES];
 const ORDER_STATUSES = ["注文受付", "発送準備中", "発送済み", "配達中", "配達完了", "キャンセル"];
 
 type ReplyTemplateRow = {

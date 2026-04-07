@@ -6,7 +6,7 @@ import {
   getOrderDetail,
   SHOPEE_ORDER_LIST_MAX_RANGE_SEC,
 } from "@/lib/shopee-api";
-import { getValidToken } from "@/lib/shopee-token";
+import { getShopCountry, getValidToken } from "@/lib/shopee-token";
 import {
   extractMessageIdFromSendResponse,
   recordStaffMessageKind,
@@ -49,14 +49,6 @@ async function getSingletonAutoReplyCountries(): Promise<
   }>("auto_reply_settings");
   const doc = await col.findOne({ _id: "singleton" });
   return doc?.countries ?? {};
-}
-
-export async function getShopCountry(shopId: number): Promise<string | null> {
-  const col = await getCollection<{ shop_id: number; country: string }>(
-    "shopee_tokens"
-  );
-  const row = await col.findOne({ shop_id: shopId });
-  return row?.country ? String(row.country).toUpperCase() : null;
 }
 
 async function resolveTemplateContent(templateId: string): Promise<string | null> {

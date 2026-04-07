@@ -46,9 +46,30 @@ import {
 export type { ShopCenterNotifItem };
 export { parseShopNotificationPayload };
 
-function formatNotifTime(d?: Date): string {
-  if (!d || Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString("ja-JP", {
+function withShopCountryOnItems(
+  items: ShopCenterNotifItem[],
+  countryCode: string | undefined
+): ShopCenterNotifItem[] {
+  const c = countryCode?.trim().toUpperCase();
+  if (!c) return items;
+  return items.map((i) => (i.country ? i : { ...i, country: c }));
+}
+
+/** API 経由の JSON では `Date` が ISO 文字列になるため両方受け取る */
+function formatNotifTime(d?: Date | string | number): string {
+  if (d == null || d === "") return "";
+  let date: Date;
+  if (d instanceof Date) {
+    date = d;
+  } else if (typeof d === "number" && Number.isFinite(d)) {
+    date = new Date(d > 1e12 ? d : d * 1000);
+  } else if (typeof d === "string") {
+    date = new Date(d);
+  } else {
+    return "";
+  }
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("ja-JP", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -104,7 +125,7 @@ function ShopNotifRow({
 }: {
   item: ShopCenterNotifItem;
   readInChapee: boolean;
-  onReadInView: (id: string) => void;
+  onReadInView: (id: string, shopId?: number) => void;
   onClosePopover?: () => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -119,7 +140,7 @@ function ShopNotifRow({
         for (const e of entries) {
           if (e.isIntersecting && e.intersectionRatio >= 0.45) {
             didMark.current = true;
-            onReadInView(item.id);
+            onReadInView(item.id, item.shopId);
             obs.disconnect();
             return;
           }
@@ -139,6 +160,16 @@ function ShopNotifRow({
         readInChapee && "opacity-65"
       )}
     >
+      {item.country ? (
+        <div className="mb-1.5">
+          <span
+            className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold tabular-nums tracking-wide bg-muted text-foreground border border-border"
+            title={`マーケット: ${item.country}`}
+          >
+            {item.country}
+          </span>
+        </div>
+      ) : null}
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-medium text-foreground line-clamp-2 min-w-0">
           {item.title}
@@ -162,7 +193,7 @@ function ShopNotifRow({
           className="inline-flex items-center gap-1 text-xs text-primary mt-2 hover:underline"
           onClick={() => {
             didMark.current = true;
-            onReadInView(item.id);
+            onReadInView(item.id, item.shopId);
             onClosePopover?.();
           }}
         >
@@ -195,7 +226,10 @@ function HeaderNotificationCenterInner() {
     localReadCount: 0,
     lastServerUnread: undefined,
   });
+  const [readTick, setReadTick] = useState(0);
+  const [multiShop, setMultiShop] = useState(false);
   const activeShopIdRef = useRef<number | null>(null);
+  const multiShopRef = useRef(false);
 
   const fetchPage = useCallback(
     async (opts: { cursor?: string | number; append: boolean }) => {
@@ -213,8 +247,44 @@ function HeaderNotificationCenterInner() {
             : "通知の取得に失敗しました";
         throw new Error(msg);
       }
+
+      if (json.multi_shop === true && Array.isArray(json.chapee_merged_items)) {
+        multiShopRef.current = true;
+        setMultiShop(true);
+        const pageItems = dedupeShopNotificationItems(
+          json.chapee_merged_items as ShopCenterNotifItem[]
+        );
+        if (typeof json.chapee_server_unread_total === "number") {
+          setServerUnreadTotal(json.chapee_server_unread_total);
+        }
+        const ids = json.chapee_shop_ids as number[] | undefined;
+        if (ids?.length) {
+          activeShopIdRef.current = ids[0];
+          setShopLabel(
+            ids.length > 1
+              ? `接続店舗 ${ids.length}件（全マーケット）`
+              : `Shop ${ids[0]}`
+          );
+        }
+        if (opts.append) {
+          setItems((prev) => dedupeShopNotificationItems([...prev, ...pageItems]));
+        } else {
+          setItems(pageItems);
+        }
+        setNextCursor(undefined);
+        return;
+      }
+
+      multiShopRef.current = false;
+      setMultiShop(false);
       const parsed = parseShopNotificationPayload(json);
-      const pageItems = dedupeShopNotificationItems(parsed.items);
+      const countryFromApi =
+        typeof json.chapee_shop_country === "string"
+          ? json.chapee_shop_country
+          : undefined;
+      const pageItems = dedupeShopNotificationItems(
+        withShopCountryOnItems(parsed.items, countryFromApi)
+      );
       if (parsed.serverUnreadTotal !== undefined) {
         setServerUnreadTotal(parsed.serverUnreadTotal);
       }
@@ -312,6 +382,10 @@ function HeaderNotificationCenterInner() {
       const res = await fetch(`/api/shopee/shop-notifications?${params}`);
       const json = (await res.json()) as Record<string, unknown>;
       if (!res.ok) return;
+      if (json.multi_shop === true && typeof json.chapee_server_unread_total === "number") {
+        setServerUnreadTotal(json.chapee_server_unread_total);
+        return;
+      }
       const parsed = parseShopNotificationPayload(json);
       if (parsed.serverUnreadTotal !== undefined) {
         setServerUnreadTotal(parsed.serverUnreadTotal);
@@ -333,20 +407,20 @@ function HeaderNotificationCenterInner() {
     }
   }, []);
 
-  const markNotificationReadInChapee = useCallback((id: string) => {
-    const sid = activeShopIdRef.current;
+  const markNotificationReadInChapee = useCallback((id: string, shopId?: number) => {
+    const sid = shopId ?? activeShopIdRef.current;
     if (sid == null) return;
-    setReadState((prev) => {
-      const next = markShopNotificationReadInChapee(sid, id, prev);
-      if (next === prev) return prev;
-      saveShopNotifReadState(sid, next);
-      if (next.readIds.length > prev.readIds.length) {
-        queueMicrotask(() =>
-          setSyncNotifHint((h) => Math.max(0, h - 1))
-        );
-      }
-      return next;
-    });
+    const prev = loadShopNotifReadState(sid);
+    const next = markShopNotificationReadInChapee(sid, id, prev);
+    if (next === prev) return;
+    saveShopNotifReadState(sid, next);
+    setReadTick((t) => t + 1);
+    if (!multiShopRef.current) {
+      setReadState(next);
+    }
+    if (next.readIds.length > prev.readIds.length) {
+      queueMicrotask(() => setSyncNotifHint((h) => Math.max(0, h - 1)));
+    }
   }, []);
 
   useEffect(() => {
@@ -371,15 +445,45 @@ function HeaderNotificationCenterInner() {
     [readState.readIds]
   );
 
+  const multiShopLocalReadSum = useMemo(() => {
+    if (!multiShop || items.length === 0) return 0;
+    const ids = new Set<number>();
+    for (const i of items) {
+      if (i.shopId != null) ids.add(i.shopId);
+    }
+    let sum = 0;
+    for (const sid of ids) {
+      sum += loadShopNotifReadState(sid).localReadCount;
+    }
+    return sum;
+  }, [multiShop, items, readTick]);
+
   const baseBadgeCount = useMemo(() => {
     if (typeof serverUnreadTotal === "number" && serverUnreadTotal >= 0) {
+      if (multiShop) {
+        const cap = Math.min(multiShopLocalReadSum, serverUnreadTotal);
+        return Math.max(0, serverUnreadTotal - cap);
+      }
       const cap = Math.min(readState.localReadCount, serverUnreadTotal);
       return Math.max(0, serverUnreadTotal - cap);
     }
-    return items.filter(
-      (i) => i.isRead !== true && !readIdsSet.has(i.id)
-    ).length;
-  }, [serverUnreadTotal, readState.localReadCount, items, readIdsSet]);
+    return items.filter((i) => {
+      if (i.isRead === true) return false;
+      const sid = i.shopId ?? activeShopIdRef.current;
+      if (sid != null) {
+        return !loadShopNotifReadState(sid).readIds.includes(i.id);
+      }
+      return !readIdsSet.has(i.id);
+    }).length;
+  }, [
+    serverUnreadTotal,
+    multiShop,
+    multiShopLocalReadSum,
+    readState.localReadCount,
+    items,
+    readIdsSet,
+    readTick,
+  ]);
 
   useEffect(() => {
     if (
@@ -453,10 +557,14 @@ function HeaderNotificationCenterInner() {
           ) : (
             <ul className="divide-y divide-border">
               {items.map((r) => {
+                const sid = r.shopId ?? activeShopIdRef.current;
                 const readInChapee =
-                  r.isRead === true || readIdsSet.has(r.id);
+                  r.isRead === true ||
+                  (sid != null
+                    ? loadShopNotifReadState(sid).readIds.includes(r.id)
+                    : readIdsSet.has(r.id));
                 return (
-                  <li key={r.id}>
+                  <li key={`${r.shopId ?? 0}-${r.id}`}>
                     <ShopNotifRow
                       item={r}
                       readInChapee={readInChapee}

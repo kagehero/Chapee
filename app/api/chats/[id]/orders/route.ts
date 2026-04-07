@@ -6,7 +6,7 @@ import {
   getOrderList,
   SHOPEE_ORDER_LIST_MAX_RANGE_SEC,
 } from "@/lib/shopee-api";
-import { getValidToken } from "@/lib/shopee-token";
+import { getValidToken, resolveCountryForShop } from "@/lib/shopee-token";
 import { textFromShopeeChatMessage } from "@/lib/shopee-conversation-utils";
 import {
   buildSellerOrderUrl,
@@ -80,7 +80,7 @@ export async function GET(
     const convCol = await getCollection<{
       conversation_id: string;
       shop_id: number;
-      country: string;
+      country?: string;
       customer_id: number;
       customer_name: string;
     }>("shopee_conversations");
@@ -97,7 +97,10 @@ export async function GET(
     }
 
     const accessToken = await getValidToken(conversation.shop_id);
-    const country = conversation.country || "SG";
+    const country = await resolveCountryForShop(
+      conversation.shop_id,
+      conversation.country
+    );
     const buyerId = Number(conversation.customer_id);
 
     const msgRes = await getConversationMessages(

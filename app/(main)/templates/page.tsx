@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { marketFilterChipsWithAll } from "@/lib/shopee-markets";
 
-const COUNTRIES = ["全て", "SG", "PH", "MY", "TW", "TH", "VN", "BR"];
+const COUNTRIES = marketFilterChipsWithAll();
 const CATEGORIES = ["全て", "発送前", "配達後", "返品・交換", "一般対応", "自動返信"];
 
 type TemplateRow = {

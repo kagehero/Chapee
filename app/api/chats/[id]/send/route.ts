@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sendMessage, sendStickerMessage } from "@/lib/shopee-api";
-import { getValidToken } from "@/lib/shopee-token";
+import { getValidToken, resolveCountryForShop } from "@/lib/shopee-token";
 import { getCollection } from "@/lib/mongodb";
 import { clearAutoReplySchedule } from "@/lib/auto-reply";
 import {
@@ -40,7 +40,7 @@ export async function POST(
     const col = await getCollection<{
       conversation_id: string;
       shop_id: number;
-      country: string;
+      country?: string;
       customer_name: string;
       customer_id: number;
     }>("shopee_conversations");
@@ -69,9 +69,11 @@ export async function POST(
 
     // Get valid access token
     const accessToken = await getValidToken(conversation.shop_id);
-    const countryOpt = {
-      country: String(conversation.country || "SG"),
-    };
+    const countryResolved = await resolveCountryForShop(
+      conversation.shop_id,
+      conversation.country
+    );
+    const countryOpt = { country: countryResolved };
 
     const textBody = (message ?? "").trim();
 
