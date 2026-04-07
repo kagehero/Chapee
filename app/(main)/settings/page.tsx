@@ -65,6 +65,8 @@ const COUNTRIES = [
 
 export default function SettingsPage() {
   const [oauthLoading, setOauthLoading] = useState(false);
+  /** auth_partner の署名に使うマーケット（MY 店と SG 店で同じ Partner でも明示すると安全） */
+  const [oauthShopeeMarket, setOauthShopeeMarket] = useState("SG");
   const [syncing, setSyncing] = useState(false);
   const [connections, setConnections] = useState<ShopeeConnection[]>([]);
   const [notificationSoundsOn, setNotificationSoundsOn] = useState(true);
@@ -203,9 +205,10 @@ export default function SettingsPage() {
   const handleShopeeOAuth = async () => {
     setOauthLoading(true);
     try {
-      const res = await fetch("/api/shopee/auth-url", {
-        credentials: "include",
-      });
+      const res = await fetch(
+        `/api/shopee/auth-url?country=${encodeURIComponent(oauthShopeeMarket)}`,
+        { credentials: "include" }
+      );
       const data = (await res.json()) as { url?: string; error?: string };
       if (!res.ok) {
         throw new Error(data.error || "認証URLの取得に失敗しました");
@@ -525,7 +528,28 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="space-y-3">
+          <div className="space-y-1.5 max-w-xs">
+            <Label
+              htmlFor="oauth-shopee-market"
+              className="text-xs font-medium text-foreground"
+            >
+              連携するマーケット
+            </Label>
+            <select
+              id="oauth-shopee-market"
+              value={oauthShopeeMarket}
+              onChange={(e) => setOauthShopeeMarket(e.target.value)}
+              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground"
+            >
+              {COUNTRIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.name} ({c.code})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <Button
             type="button"
             onClick={handleShopeeOAuth}
@@ -547,6 +571,7 @@ export default function SettingsPage() {
           <p className="text-muted-foreground text-xs sm:max-w-md">
             Partner ID や認証コードの入力は不要です。連携後、下に接続済み店舗が表示されます。
           </p>
+        </div>
         </div>
       </div>
 

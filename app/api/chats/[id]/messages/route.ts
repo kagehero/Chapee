@@ -5,7 +5,7 @@ import {
   getOneConversation,
   getShopInfo,
 } from "@/lib/shopee-api";
-import { getValidToken } from "@/lib/shopee-token";
+import { getValidToken, resolveCountryForShop } from "@/lib/shopee-token";
 import {
   displayFromShopeeChatMessage,
   extractBuyerAvatarFromShopee,
@@ -33,7 +33,7 @@ export async function GET(
     const convCol = await getCollection<{
       conversation_id: string;
       shop_id: number;
-      country: string;
+      country?: string;
       customer_id: number;
       customer_name: string;
       customer_avatar_url?: string;
@@ -56,9 +56,11 @@ export async function GET(
     );
 
     const accessToken = await getValidToken(conversation.shop_id);
-    const countryOpt = {
-      country: String(conversation.country || "SG"),
-    };
+    const countryResolved = await resolveCountryForShop(
+      conversation.shop_id,
+      conversation.country
+    );
+    const countryOpt = { country: countryResolved };
 
     let customerAvatar: string | null =
       conversation.customer_avatar_url ?? null;
@@ -150,13 +152,13 @@ export async function GET(
       const orderSn = display.order?.order_sn?.trim();
       const order_url =
         orderSn && orderSn.length >= 8
-          ? buildSellerOrderUrl(conversation.country, orderSn)
+          ? buildSellerOrderUrl(countryResolved, orderSn)
           : undefined;
       const item = display.item;
       const item_url =
         item?.item_id && item?.shop_id
           ? buildBuyerItemUrl(
-              conversation.country,
+              countryResolved,
               item.shop_id,
               item.item_id
             )
@@ -208,7 +210,7 @@ export async function GET(
         id: conversationId,
         customer_name: conversation.customer_name,
         customer_id: conversation.customer_id,
-        country: conversation.country,
+        country: countryResolved,
         shop_id: conversation.shop_id,
         customer_avatar_url: customerAvatar,
         shop_logo_url: shopLogo,

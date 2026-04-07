@@ -81,6 +81,29 @@ export async function getConnectedShops() {
   return await col.find({}).toArray();
 }
 
+/** `shopee_tokens` に保存された店舗のマーケット（OAuth / get_shop_info で設定） */
+export async function getShopCountry(
+  shopId: number
+): Promise<string | null> {
+  const col = await getCollection<{ shop_id: number; country: string }>(
+    "shopee_tokens"
+  );
+  const row = await col.findOne({ shop_id: shopId });
+  return row?.country ? String(row.country).trim().toUpperCase() : null;
+}
+
+/**
+ * 会話ドキュメントに `country` が無い旧データでも、トークンから MY 等を復元する。
+ */
+export async function resolveCountryForShop(
+  shopId: number,
+  conversationCountry?: string | null
+): Promise<string> {
+  const c = conversationCountry?.trim();
+  if (c) return c.toUpperCase();
+  return (await getShopCountry(shopId)) ?? "SG";
+}
+
 /**
  * Refresh all tokens that are expiring soon (background job)
  */

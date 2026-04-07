@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { getCollection } from "@/lib/mongodb";
+import { defaultStaffMarketCountries } from "@/lib/shopee-markets";
 
 type StaffDoc = {
   name: string;
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
       name: String(name).trim(),
       email: String(email).trim(),
       role: role || "オペレーター",
-      countries: Array.isArray(countries) ? countries : ["SG"],
+      countries: Array.isArray(countries) ? countries : defaultStaffMarketCountries(),
       activeChats: 0,
       status: "offline",
       created_at: now,

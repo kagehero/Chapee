@@ -6,21 +6,28 @@ export type ShopCenterNotifItem = {
   id: string;
   title: string;
   content: string;
-  createdAt?: Date;
+  /** クライアントで API JSON を受け取ると ISO 文字列にシリアライズされる */
+  createdAt?: Date | string;
   url?: string;
   /** API が既読を返す場合のみ。未設定は「不明」 */
   isRead?: boolean;
+  /** 複数店舗連携時、通知がどの shop に属するか */
+  shopId?: number;
+  /** マーケットコード（例: SG, MY）— 一覧で国別表示用 */
+  country?: string;
 };
 
-/** Shopee が同一 notification_id を複数返すことがあるため、先勝ちで一意化 */
+/** Shopee が同一 notification_id を複数返すことがあるため、先勝ちで一意化（店舗またぎは shopId を含める） */
 export function dedupeShopNotificationItems(
   items: ShopCenterNotifItem[]
 ): ShopCenterNotifItem[] {
   const seen = new Set<string>();
   const out: ShopCenterNotifItem[] = [];
   for (const item of items) {
-    if (seen.has(item.id)) continue;
-    seen.add(item.id);
+    const key =
+      item.shopId != null ? `${item.shopId}:${item.id}` : item.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
     out.push(item);
   }
   return out;
@@ -185,6 +192,7 @@ export function parseShopNotificationPayload(
       content,
       createdAt,
       url,
+      ...(Number.isFinite(shopId) ? { shopId } : {}),
       ...(isRead !== undefined ? { isRead } : {}),
     };
   });

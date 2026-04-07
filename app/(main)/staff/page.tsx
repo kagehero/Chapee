@@ -14,9 +14,13 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import {
+  SHOPEE_MARKET_CODES,
+  defaultStaffMarketCountries,
+} from "@/lib/shopee-markets";
 
 const ROLES = ["管理者", "オペレーター", "閲覧者"];
-const COUNTRIES = ["SG", "PH", "MY", "TW", "TH", "VN", "BR"];
+const COUNTRIES = [...SHOPEE_MARKET_CODES];
 
 type StaffRow = {
   id: string;
@@ -52,7 +56,9 @@ export default function StaffPage() {
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState("オペレーター");
-  const [newCountries, setNewCountries] = useState<string[]>(["SG"]);
+  const [newCountries, setNewCountries] = useState<string[]>(
+    defaultStaffMarketCountries()
+  );
 
   const loadStaff = useCallback(async () => {
     const res = await fetch("/api/staff");
@@ -100,7 +106,7 @@ export default function StaffPage() {
       setNewName("");
       setNewEmail("");
       setNewRole("オペレーター");
-      setNewCountries(["SG"]);
+      setNewCountries(defaultStaffMarketCountries());
       toast.success("担当者を登録しました");
     } catch {
       toast.error("登録に失敗しました");
