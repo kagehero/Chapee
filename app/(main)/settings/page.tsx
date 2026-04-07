@@ -26,6 +26,7 @@ import {
   dispatchShopNotificationsRefresh,
   sumNewNotificationIdsFromSyncResults,
 } from "@/lib/chapee-shop-notifications-events";
+import { SHOPEE_MARKET_OPTIONS } from "@/lib/shopee-markets";
 
 type TranslationProvider = "deepl" | "google";
 
@@ -52,16 +53,7 @@ type ShopeeConnection = {
   updated_at: string;
 };
 
-const COUNTRIES = [
-  { code: "SG", name: "Singapore" },
-  { code: "PH", name: "Philippines" },
-  { code: "MY", name: "Malaysia" },
-  { code: "TW", name: "Taiwan" },
-  { code: "TH", name: "Thailand" },
-  { code: "ID", name: "Indonesia" },
-  { code: "VN", name: "Vietnam" },
-  { code: "BR", name: "Brazil" },
-];
+const COUNTRIES = SHOPEE_MARKET_OPTIONS;
 
 export default function SettingsPage() {
   const [oauthLoading, setOauthLoading] = useState(false);
