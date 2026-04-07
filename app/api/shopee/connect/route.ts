@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAccessToken } from "@/lib/shopee-api";
+import { getAccessToken, getShopInfo } from "@/lib/shopee-api";
 import { getCollection } from "@/lib/mongodb";
+import {
+  countryFromShopeeOAuthBody,
+  regionFromShopInfoPayload,
+  shopNameFromShopInfoPayload,
+} from "@/lib/shopee-oauth-country";
 
 /**
  * Manual token exchange endpoint for when you already have code and shop_id
@@ -8,7 +13,12 @@ import { getCollection } from "@/lib/mongodb";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { code, shop_id, country } = body;
+    const { code, shop_id, country: countryRaw, region } = body as {
+      code?: string;
+      shop_id?: unknown;
+      country?: string;
+      region?: string;
+    };
 
     if (!code || !shop_id) {
       return NextResponse.json(
@@ -17,12 +27,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const shopId = parseInt(shop_id);
+    const shopId = parseInt(String(shop_id), 10);
+
+    let country = countryFromShopeeOAuthBody({
+      country: countryRaw,
+      region,
+    });
 
     // Exchange code for access token
     const tokenData = await getAccessToken(code, shopId, {
-      country: country || "SG",
+      country,
     });
+
+    let shopName = `${country} Shop ${shopId}`;
+    try {
+      const shopInfo = await getShopInfo(tokenData.access_token, shopId, {
+        country,
+      });
+      const fromApi = regionFromShopInfoPayload(shopInfo);
+      if (fromApi) country = fromApi;
+      shopName =
+        shopNameFromShopInfoPayload(shopInfo) || `${country} Shop ${shopId}`;
+    } catch {
+      // keep defaults
+    }
 
     // Store token in database
     const col = await getCollection<{
@@ -42,7 +70,8 @@ export async function POST(request: NextRequest) {
       { shop_id: shopId },
       {
         $set: {
-          country: country || "SG",
+          country,
+          shop_name: shopName,
           access_token: tokenData.access_token,
           refresh_token: tokenData.refresh_token,
           expires_at: expiresAt,
@@ -50,7 +79,6 @@ export async function POST(request: NextRequest) {
         },
         $setOnInsert: {
           shop_id: shopId,
-          shop_name: `${country || "SG"} Shop ${shopId}`,
           created_at: new Date(),
         },
       },

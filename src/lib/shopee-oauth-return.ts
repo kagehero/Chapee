@@ -13,6 +13,8 @@ export function shopeeOAuthReturnQuery(
   q.set("code", code);
   q.set("shop_id", shopId);
   const country = typeof sp.country === "string" ? sp.country : undefined;
+  const region = typeof sp.region === "string" ? sp.region : undefined;
   if (country) q.set("country", country);
+  else if (region) q.set("region", region);
   return `?${q.toString()}`;
 }
