@@ -200,7 +200,8 @@ export default function DashboardPage() {
           body: JSON.stringify({
             code,
             shop_id: shopId,
-            country: params.get("country") || "SG",
+            country: params.get("country") ?? undefined,
+            region: params.get("region") ?? undefined,
           }),
         });
         const data = (await res.json()) as { error?: string };

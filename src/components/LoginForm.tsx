@@ -38,11 +38,13 @@ export default function LoginForm() {
       const code = searchParams.get("code");
       const shopId = searchParams.get("shop_id");
       const country = searchParams.get("country");
+      const region = searchParams.get("region");
       if (code && shopId) {
         const q = new URLSearchParams();
         q.set("code", code);
         q.set("shop_id", shopId);
         if (country) q.set("country", country);
+        else if (region) q.set("region", region);
         router.push(`/dashboard?${q.toString()}`);
       } else {
         router.push("/dashboard");

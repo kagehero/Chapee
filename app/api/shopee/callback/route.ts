@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getAccessToken, getShopInfo } from "@/lib/shopee-api";
 import { getCollection } from "@/lib/mongodb";
+import {
+  countryFromShopeeOAuthSearchParams,
+  regionFromShopInfoPayload,
+  shopNameFromShopInfoPayload,
+} from "@/lib/shopee-oauth-country";
 
 const OAUTH_COOKIE = "shopee_oauth_state";
 
@@ -41,7 +46,7 @@ export async function GET(request: NextRequest) {
 
     const code = searchParams.get("code");
     const shopIdParam = searchParams.get("shop_id");
-    const country = searchParams.get("country") || "SG";
+    let country = countryFromShopeeOAuthSearchParams(searchParams);
 
     if (!code) {
       return NextResponse.redirect(
@@ -70,13 +75,16 @@ export async function GET(request: NextRequest) {
     // Exchange code for access token
     const tokenData = await getAccessToken(code, shopId, { country });
 
-    // Get shop info to store shop name
-    let shopName = `${country || "SG"} Shop ${shopId}`;
+    // Get shop info — Shopee は OAuth で `region` のみ返すことがあるので API で上書きもする
+    let shopName = `${country} Shop ${shopId}`;
     try {
       const shopInfo = await getShopInfo(tokenData.access_token, shopId, {
         country,
       });
-      shopName = shopInfo.shop_name || shopName;
+      const fromApi = regionFromShopInfoPayload(shopInfo);
+      if (fromApi) country = fromApi;
+      shopName =
+        shopNameFromShopInfoPayload(shopInfo) || `${country} Shop ${shopId}`;
     } catch (err) {
       console.log("Failed to get shop info, using default name");
     }
