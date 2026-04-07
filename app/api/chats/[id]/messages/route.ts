@@ -15,6 +15,7 @@ import {
   shopeeMessageTimeToMs,
 } from "@/lib/shopee-conversation-utils";
 import { buildBuyerItemUrl, buildSellerOrderUrl } from "@/lib/shopee-order-utils";
+import { fetchItemCatalogMapByIds } from "@/lib/shopee-product-utils";
 import { kindMapFromLog } from "@/lib/staff-message-kind";
 import { getStoredRawMessagesForConversation } from "@/lib/shopee-conversation-db-sync";
 
@@ -66,20 +67,32 @@ export async function GET(
       conversation.customer_avatar_url ?? null;
     let shopLogo: string | null = null;
 
+    /** Webhook が書いたキャッシュ。API 失敗時のみフォールバックに使う。 */
     const storedRaws = await getStoredRawMessagesForConversation(
       conversation.shop_id,
       conversationId
     );
 
     const [msgResult, oneRes, shopRes] = await Promise.allSettled([
-      storedRaws.length > 0
-        ? Promise.resolve(storedRaws)
-        : fetchAllConversationMessages(
+      (async () => {
+        try {
+          return await fetchAllConversationMessages(
             accessToken,
             conversation.shop_id,
             conversationId,
             countryOpt
-          ),
+          );
+        } catch (err) {
+          if (storedRaws.length > 0) {
+            console.warn(
+              "[messages] fetchAllConversationMessages failed; using MongoDB cache",
+              err
+            );
+            return storedRaws;
+          }
+          throw err;
+        }
+      })(),
       getOneConversation(
         accessToken,
         conversation.shop_id,
@@ -155,11 +168,15 @@ export async function GET(
           ? buildSellerOrderUrl(countryResolved, orderSn)
           : undefined;
       const item = display.item;
+      const shopIdForLink =
+        item?.shop_id != null && String(item.shop_id).trim() !== ""
+          ? String(item.shop_id)
+          : String(conversation.shop_id);
       const item_url =
-        item?.item_id && item?.shop_id
+        item?.item_id && shopIdForLink
           ? buildBuyerItemUrl(
               countryResolved,
-              item.shop_id,
+              shopIdForLink,
               item.item_id
             )
           : undefined;
@@ -202,6 +219,34 @@ export async function GET(
         staff_send_kind,
       };
     });
+
+    const itemIdsForCatalog = messages
+      .filter((m) => m.content_kind === "item" && m.item_card?.item_id)
+      .map((m) => Number(m.item_card!.item_id))
+      .filter((n) => Number.isFinite(n) && n > 0);
+
+    if (itemIdsForCatalog.length > 0) {
+      const catalog = await fetchItemCatalogMapByIds(
+        accessToken,
+        conversation.shop_id,
+        itemIdsForCatalog,
+        countryOpt
+      );
+      for (const m of messages) {
+        if (m.content_kind !== "item" || !m.item_card?.item_id) continue;
+        const n = Number(m.item_card.item_id);
+        const info = catalog.get(n);
+        if (!info) continue;
+        m.item_card = {
+          ...m.item_card,
+          name: info.name || m.item_card.name,
+          image_url: info.image_url || m.item_card.image_url,
+        };
+        if (m.item_card.name) {
+          m.content = `商品: ${m.item_card.name}`;
+        }
+      }
+    }
 
     messages.sort((a, b) => a.timestamp_ms - b.timestamp_ms);
 
