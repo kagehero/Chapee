@@ -109,13 +109,14 @@ Configure in Shopee Open Platform → Webhooks → Add URL
 - `app/api/shopee/connect/route.ts` - Accept country param
 - `app/api/shopee/callback/route.ts` - Store country
 
-**Supported Countries:**
+**Supported Countries（7か国）:**
 - 🇸🇬 SG - Singapore
 - 🇵🇭 PH - Philippines
 - 🇲🇾 MY - Malaysia
+- 🇹🇼 TW - Taiwan
 - 🇹🇭 TH - Thailand
-- 🇮🇩 ID - Indonesia
 - 🇻🇳 VN - Vietnam
+- 🇧🇷 BR - Brazil
 
 **Features:**
 - Dropdown to select country before connecting
@@ -170,7 +171,7 @@ Configure in Shopee Open Platform → Webhooks → Add URL
 {
   shop_id: number,
   shop_name: string,
-  country: "SG" | "PH" | "MY" | "TH" | "ID" | "VN",
+  country: "SG" | "PH" | "MY" | "TW" | "TH" | "VN" | "BR",
   access_token: string,
   refresh_token: string,
   expires_at: Date,
@@ -283,7 +284,7 @@ curl -X POST http://localhost:3000/api/shopee/sync
 ✅ **Send messages** - Chat detail integrated  
 ✅ **Auto-refresh tokens** - Background job + cron  
 ✅ **Webhooks** - Real-time event handling  
-✅ **Multi-country** - SG, PH, MY, TH, ID, VN  
+✅ **Multi-country** - SG, PH, MY, TW, TH, VN, BR（7か国）  
 
 The Shopee integration is **complete and production-ready**!
 
