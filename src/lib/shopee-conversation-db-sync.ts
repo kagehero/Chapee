@@ -49,6 +49,18 @@ function pickLatestMessage(
   return best;
 }
 
+/** バイヤー（shopId 以外が送信）のメッセージの中で最新のものを返す */
+function pickLatestBuyerMessage(
+  rawList: Record<string, unknown>[],
+  shopId: number
+): Record<string, unknown> | undefined {
+  const buyerMsgs = rawList.filter((m) => {
+    const fromId = Number(m.from_id ?? m.from_user_id ?? 0);
+    return fromId !== shopId;
+  });
+  return pickLatestMessage(buyerMsgs);
+}
+
 /**
  * Webhook（code 10）後: Shopee から全メッセージ + 会話1件を取得し、
  * - `shopee_chat_messages` に upsert
@@ -68,6 +80,7 @@ export async function syncWebhookConversationFull(
     to_id: number;
     to_name: string;
     from_id: number;
+    last_buyer_message_time?: Date;
   };
 }> {
   try {
@@ -148,6 +161,15 @@ export async function syncWebhookConversationFull(
         )
       : new Date();
 
+    const latestBuyer = pickLatestBuyerMessage(rawList, shopId);
+    const lastBuyerTime = latestBuyer
+      ? new Date(
+          shopeeMessageTimeToMs(
+            latestBuyer.timestamp ?? latestBuyer.created_timestamp ?? latestBuyer.time
+          )
+        )
+      : undefined;
+
     const convCol = await getCollection<{
       conversation_id: string;
       shop_id: number;
@@ -156,6 +178,7 @@ export async function syncWebhookConversationFull(
       customer_name: string;
       last_message: string;
       last_message_time: Date;
+      last_buyer_message_time?: Date;
       unread_count: number;
       status: string;
       customer_avatar_url?: string;
@@ -167,6 +190,7 @@ export async function syncWebhookConversationFull(
       last_message: lastPreview || "",
       last_message_time: lastTime,
     };
+    if (lastBuyerTime) setConv.last_buyer_message_time = lastBuyerTime;
     if (country) setConv.country = country;
     if (Number.isFinite(buyerId) && buyerId > 0) setConv.customer_id = buyerId;
     if (buyerName) setConv.customer_name = buyerName;
@@ -201,6 +225,7 @@ export async function syncWebhookConversationFull(
         to_name: buyerName,
         /** 最新メッセージの送信元（Webhook の data が欠けるときの代替） */
         from_id: Number.isFinite(latestFromId) ? latestFromId : 0,
+        last_buyer_message_time: lastBuyerTime,
       },
     };
   } catch (e) {

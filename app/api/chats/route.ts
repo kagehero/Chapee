@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
       customer_name: string;
       last_message: string;
       last_message_time: Date;
+      last_buyer_message_time?: Date;
       last_message_type?: string;
       chat_type?: ChatType;
       unread_count: number;
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest) {
       customer_name: string;
       last_message: string;
       last_message_time: Date;
+      last_buyer_message_time?: Date;
       last_message_type?: string;
       chat_type?: ChatType;
       unread_count: number;
@@ -103,8 +105,9 @@ export async function GET(request: NextRequest) {
 
     const now = Date.now();
     let chats = conversations.map((conv) => {
-      const elapsed =
-        (now - conv.last_message_time.getTime()) / (1000 * 60 * 60);
+      // バイヤーの最新メッセージ時刻を基準にする（スタッフ返信時刻は除外）
+      const elapsedBase = conv.last_buyer_message_time ?? conv.last_message_time;
+      const elapsed = (now - elapsedBase.getTime()) / (1000 * 60 * 60);
 
       const uiStatus =
         conv.status === "archived"

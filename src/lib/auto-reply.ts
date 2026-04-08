@@ -157,6 +157,8 @@ type WebhookMsg = {
   to_id: number;
   to_name: string;
   from_id: number;
+  /** バイヤーの最新メッセージ受信時刻（DBに記録済みの値）。未指定なら Date.now() を使用 */
+  last_buyer_message_time?: Date;
 };
 
 /**
@@ -198,7 +200,9 @@ export async function handleAutoReplyOnWebhookMessage(
   if (!ObjectId.isValid(cfg.template_id.trim())) return;
 
   const triggerHour = Math.max(1, Number(cfg.triggerHour) || 1);
-  const due = new Date(Date.now() + triggerHour * 60 * 60 * 1000);
+  // バイヤーの最新メッセージ時刻を基準に due を計算（Webhook遅延があっても正確）
+  const baseTime = data.last_buyer_message_time?.getTime() ?? Date.now();
+  const due = new Date(baseTime + triggerHour * 60 * 60 * 1000);
 
   await col.updateOne(
     { conversation_id: convId, shop_id },
@@ -212,7 +216,7 @@ export async function handleAutoReplyOnWebhookMessage(
   );
 
   console.log(
-    `[auto-reply] Scheduled for ${convId} shop=${shop_id} due=${due.toISOString()} (${triggerHour}h)`
+    `[auto-reply] Scheduled for ${convId} shop=${shop_id} due=${due.toISOString()} (${triggerHour}h from ${data.last_buyer_message_time?.toISOString() ?? "now"})`
   );
 }
 
