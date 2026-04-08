@@ -109,6 +109,7 @@ async function handleNewMessage(data: Record<string, unknown>) {
       to_id: toId,
       to_name: toName,
       from_id: fromId,
+      last_buyer_message_time: hint.last_buyer_message_time,
     });
   } catch (error) {
     console.error("[Webhook] handleNewMessage error:", error);
