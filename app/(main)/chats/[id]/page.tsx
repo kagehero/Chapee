@@ -200,15 +200,21 @@ function ChatMessageBody({ msg, isStaff }: { msg: Message; isStaff: boolean }) {
 function formatMessageTimestamps(ms: number) {
   const d = new Date(ms);
   return {
-    time: d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }),
+    time: d.toLocaleTimeString("ja-JP", { timeZone: "Asia/Tokyo", hour: "2-digit", minute: "2-digit" }),
     datetime: d.toLocaleString("ja-JP", {
+      timeZone: "Asia/Tokyo",
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
     }),
-    date_key: d.toISOString().slice(0, 10),
+    date_key: d.toLocaleDateString("ja-JP", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).replace(/\//g, "-"),
     timestamp_ms: ms,
   };
 }
@@ -217,6 +223,7 @@ function dateKeyToLabel(dateKey: string) {
   const [y, m, d] = dateKey.split("-").map(Number);
   if (!y || !m || !d) return dateKey;
   return new Date(y, m - 1, d).toLocaleDateString("ja-JP", {
+    timeZone: "Asia/Tokyo",
     year: "numeric",
     month: "long",
     day: "numeric",
