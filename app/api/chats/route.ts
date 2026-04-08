@@ -126,12 +126,12 @@ export async function GET(request: NextRequest) {
         customer_id: conv.customer_id,
         lastMessage: conv.last_message,
         product: "—",
-        date: conv.last_message_time.toLocaleDateString("ja-JP", {
+        date: elapsedBase.toLocaleDateString("ja-JP", {
           year: "numeric",
           month: "2-digit",
           day: "2-digit",
         }),
-        time: conv.last_message_time.toLocaleTimeString("ja-JP", {
+        time: elapsedBase.toLocaleTimeString("ja-JP", {
           hour: "2-digit",
           minute: "2-digit",
         }),
