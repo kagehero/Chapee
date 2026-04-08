@@ -127,11 +127,13 @@ export async function GET(request: NextRequest) {
         lastMessage: conv.last_message,
         product: "—",
         date: elapsedBase.toLocaleDateString("ja-JP", {
+          timeZone: "Asia/Tokyo",
           year: "numeric",
           month: "2-digit",
           day: "2-digit",
         }),
         time: elapsedBase.toLocaleTimeString("ja-JP", {
+          timeZone: "Asia/Tokyo",
           hour: "2-digit",
           minute: "2-digit",
         }),
