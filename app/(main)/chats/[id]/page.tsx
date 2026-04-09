@@ -477,34 +477,6 @@ export default function ChatDetailPage() {
   }, [messages]);
 
   /** 会話メッセージから商品カードを集約（未注文の問い合わせでもサイドで確認できるように） */
-  const relatedProductsFromChat = useMemo(() => {
-    const m = new Map<
-      string,
-      {
-        item_id?: string;
-        name: string;
-        image_url?: string;
-        item_url?: string;
-      }
-    >();
-    for (const msg of messages) {
-      if (msg.content_kind !== "item") continue;
-      const card = msg.item_card;
-      const id = card?.item_id?.trim();
-      const name = (card?.name ?? msg.content ?? "").trim();
-      if (!id && !name) continue;
-      const key = id || `name:${name}`;
-      if (m.has(key)) continue;
-      m.set(key, {
-        ...(id ? { item_id: id } : {}),
-        name: name || "商品",
-        image_url: card?.image_url,
-        item_url: msg.item_url,
-      });
-    }
-    return Array.from(m.values());
-  }, [messages]);
-
   // Load messages from API
   useEffect(() => {
     if (id) {
@@ -900,7 +872,7 @@ export default function ChatDetailPage() {
       <Button
         variant="outline"
         size="sm"
-        onClick={() => router.push("/dashboard")}
+        onClick={() => router.back()}
         className="gap-1.5 w-full justify-start"
       >
         <ArrowLeft size={14} />
@@ -937,120 +909,6 @@ export default function ChatDetailPage() {
             </div>
           </div>
 
-          {/* 問い合わせ商品: conversation metadata から抽出した商品（最優先表示） */}
-          {conversation.inquired_items && conversation.inquired_items.length > 0 ? (
-            <div className="bg-card rounded-xl border-2 border-primary/30 shadow-card p-4 space-y-2">
-              <div className="flex items-center gap-2 pb-1 border-b border-border">
-                <ShoppingBag size={14} className="text-primary" />
-                <p className="text-foreground font-semibold text-sm text-primary">
-                  問い合わせ商品
-                </p>
-              </div>
-              <ul className="space-y-2">
-                {conversation.inquired_items.map((p, i) => (
-                  <li
-                    key={p.item_id ?? `ni-${i}-${p.name}`}
-                    className="rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-2 text-xs"
-                  >
-                    <div className="flex gap-2.5 items-start min-w-0">
-                      {p.image_url ? (
-                        <img
-                          src={p.image_url}
-                          alt={p.name ?? ""}
-                          className="w-14 h-14 rounded-md object-cover shrink-0 border border-border"
-                          loading="lazy"
-                          referrerPolicy="no-referrer"
-                          onError={(e) => { e.currentTarget.style.display = "none"; }}
-                        />
-                      ) : null}
-                      <div className="min-w-0 flex-1">
-                        {p.name ? (
-                          <p className="text-foreground font-semibold leading-snug break-words">
-                            {p.name}
-                          </p>
-                        ) : null}
-                        {p.item_id ? (
-                          <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
-                            ID: {p.item_id}
-                          </p>
-                        ) : null}
-                        {p.item_url ? (
-                          <a
-                            href={p.item_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-primary font-medium mt-1.5 hover:underline"
-                          >
-                            商品ページを開く
-                            <ExternalLink size={11} className="shrink-0" />
-                          </a>
-                        ) : null}
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {/* 関連商品（チャット）: item カードとして解析されたメッセージから */}
-          {relatedProductsFromChat.length > 0 ? (
-            <div className="bg-card rounded-xl border border-border shadow-card p-4 space-y-2">
-              <div className="flex items-center gap-2 pb-1 border-b border-border">
-                <ShoppingBag size={14} className="text-primary" />
-                <p className="text-foreground font-semibold text-sm">
-                  関連商品（チャット）
-                </p>
-              </div>
-              <TooltipProvider delayDuration={250}>
-                <ul className="space-y-2 max-h-[min(36vh,280px)] overflow-y-auto scrollbar-thin">
-                  {relatedProductsFromChat.map((p, i) => (
-                    <li
-                      key={p.item_id ?? `n-${i}-${p.name}`}
-                      className="rounded-lg border border-border bg-muted/30 px-2.5 py-2 text-xs"
-                    >
-                      <div className="flex gap-2 items-start min-w-0">
-                        {p.image_url ? (
-                          <img
-                            src={p.image_url}
-                            alt=""
-                            className="w-10 h-10 rounded-md object-cover shrink-0 border border-border"
-                            loading="lazy"
-                            referrerPolicy="no-referrer"
-                            onError={(e) => {
-                              e.currentTarget.style.display = "none";
-                            }}
-                          />
-                        ) : null}
-                        <div className="min-w-0 flex-1">
-                          <p className="text-foreground font-medium line-clamp-3 leading-snug">
-                            {p.name}
-                          </p>
-                          {p.item_id ? (
-                            <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
-                              ID: {p.item_id}
-                            </p>
-                          ) : null}
-                          {p.item_url ? (
-                            <a
-                              href={p.item_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-primary font-medium mt-1 hover:underline"
-                            >
-                              商品ページ
-                              <ExternalLink size={12} className="shrink-0" />
-                            </a>
-                          ) : null}
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </TooltipProvider>
-            </div>
-          ) : null}
-
           <div className="bg-card rounded-xl border border-border shadow-card p-4 space-y-2">
             <div className="flex items-center gap-2 pb-1 border-b border-border">
               <Package size={14} className="text-primary" />
@@ -1063,18 +921,8 @@ export default function ChatDetailPage() {
               </div>
             ) : orders.length === 0 ? (
               <p className="text-xs text-muted-foreground leading-relaxed">
-                直近90日の注文一覧から該当する注文が見つかりませんでした。
-                {relatedProductsFromChat.length > 0 ? (
-                  <>
-                    {" "}
-                    上の「関連商品」またはメッセージ内の商品カードをご確認ください。
-                  </>
-                ) : (
-                  <>
-                    {" "}
-                    未購入のお問い合わせの場合は、メッセージ内の商品カードが表示されます。
-                  </>
-                )}
+                直近90日の注文一覧から該当する注文が見つかりませんでした。{" "}
+                未購入のお問い合わせの場合は、メッセージ内の商品カードをご確認ください。
               </p>
             ) : (
               <TooltipProvider delayDuration={250}>
@@ -1197,7 +1045,7 @@ export default function ChatDetailPage() {
               variant="ghost"
               size="icon"
               className="lg:hidden shrink-0 h-9 w-9 text-primary-foreground hover:bg-primary-foreground/20"
-              onClick={() => router.push("/dashboard")}
+              onClick={() => router.back()}
               aria-label="一覧に戻る"
             >
               <ArrowLeft size={18} />
@@ -1242,6 +1090,40 @@ export default function ChatDetailPage() {
             </span>
           </div>
         </div>
+
+        {/* Inquired product banner — pinned between header and messages */}
+        {conversation?.inquired_items && conversation.inquired_items.length > 0 ? (
+          <div className="flex-shrink-0 border-b border-primary/20 bg-primary/5 px-3 py-2 flex items-center gap-2.5 overflow-hidden">
+            <ShoppingBag size={13} className="text-primary shrink-0" />
+            <span className="text-[11px] font-medium text-primary shrink-0">問い合わせ商品:</span>
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              {conversation.inquired_items[0].image_url ? (
+                <img
+                  src={conversation.inquired_items[0].image_url}
+                  alt={conversation.inquired_items[0].name ?? ""}
+                  className="w-8 h-8 rounded object-cover shrink-0 border border-primary/20"
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                />
+              ) : null}
+              <span className="text-xs font-semibold text-foreground truncate leading-snug">
+                {conversation.inquired_items[0].name ?? `ID: ${conversation.inquired_items[0].item_id}`}
+              </span>
+            </div>
+            {conversation.inquired_items[0].item_url ? (
+              <a
+                href={conversation.inquired_items[0].item_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 inline-flex items-center gap-1 text-[11px] text-primary font-medium hover:underline"
+              >
+                開く
+                <ExternalLink size={11} className="shrink-0" />
+              </a>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">

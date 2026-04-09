@@ -403,7 +403,61 @@ export function flattenShopeeChatPayload(msg: Record<string, unknown>): Record<s
   // root-level item_list (some Shopee endpoints return it at the top)
   mergeFirstItemFromList(flat, msg.item_list);
 
+  // Last-resort deep scan: if item_id is still not in flat, walk the entire
+  // message tree to find the first object that carries item_id (covers Shopee
+  // bundle/inquiry message types whose exact nesting is unknown).
+  if (!flat.item_id && !flat.itemid) {
+    const found = deepFindItemId(msg);
+    if (found) {
+      if (found.item_id) flat.item_id = found.item_id;
+      if (found.shop_id) flat.shop_id = flat.shop_id ?? found.shop_id;
+      if (found.item_name) flat.item_name = flat.item_name ?? found.item_name;
+      if (found.name) flat.name = flat.name ?? found.name;
+      if (found.image_url) flat.image_url = flat.image_url ?? found.image_url;
+      if (found.thumb_url) flat.thumb_url = flat.thumb_url ?? found.thumb_url;
+    }
+  }
+
   return flat;
+}
+
+/**
+ * Walk the full message object tree looking for the first leaf object that has
+ * item_id / itemid. Returns a partial flat record with the key fields.
+ */
+function deepFindItemId(
+  obj: unknown,
+  depth = 0
+): Record<string, unknown> | undefined {
+  if (depth > 8 || obj == null || typeof obj !== "object") return undefined;
+  if (Array.isArray(obj)) {
+    for (const el of obj) {
+      const r = deepFindItemId(el, depth + 1);
+      if (r) return r;
+    }
+    return undefined;
+  }
+  const o = obj as Record<string, unknown>;
+  const hasItemId =
+    (typeof o.item_id === "number" && o.item_id > 0) ||
+    (typeof o.item_id === "string" && o.item_id.trim()) ||
+    (typeof o.itemid === "number" && o.itemid > 0) ||
+    (typeof o.itemid === "string" && o.itemid.trim());
+  if (hasItemId) {
+    return {
+      item_id: o.item_id ?? o.itemid,
+      shop_id: o.shop_id ?? o.shopid,
+      item_name: o.item_name ?? o.name ?? o.item_title ?? o.title,
+      name: o.item_name ?? o.name ?? o.item_title ?? o.title,
+      image_url: o.image_url ?? o.thumb_url ?? o.thumbnail_url ?? o.item_image,
+      thumb_url: o.thumb_url ?? o.image_url ?? o.thumbnail_url,
+    };
+  }
+  for (const v of Object.values(o)) {
+    const r = deepFindItemId(v, depth + 1);
+    if (r) return r;
+  }
+  return undefined;
 }
 
 /** 本文・リンクに含まれる Shopee 商品 URL から item_id / shop_id を拾う */
