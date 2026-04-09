@@ -651,12 +651,6 @@ export default function ChatDetailPage() {
         throw new Error("翻訳結果が空です");
       }
       setInputMessage(data.text);
-      const tl = data.target_lang?.toUpperCase().replace(/-.*/, "");
-      toast.success(
-        tl === "EN"
-          ? "英語に翻訳して入力欄に反映しました"
-          : "日本語に翻訳して入力欄に反映しました"
-      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "翻訳に失敗しました");
     } finally {

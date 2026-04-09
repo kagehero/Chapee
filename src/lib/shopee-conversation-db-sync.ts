@@ -10,6 +10,7 @@ import {
   extractBuyerAvatarFromShopee,
   shopeeMessageTimeToMs,
 } from "@/lib/shopee-conversation-utils";
+import { reviewAutoReplySchedule } from "@/lib/auto-reply";
 
 /** Webhook 同期後のメッセージ行を保持（GET /messages が DB から組み立て可能に） */
 export const SHOPEE_CHAT_MESSAGES_COLLECTION = "shopee_chat_messages";
@@ -209,6 +210,10 @@ export async function syncWebhookConversationFull(
       },
       { upsert: true }
     );
+
+    // Re-evaluate auto-reply schedule from actual message timestamps.
+    // This handles missed or delayed webhooks without relying on the caller.
+    await reviewAutoReplySchedule(rawList, shopId, String(conversationId));
 
     const latestFromId = latest
       ? Number(latest.from_id ?? latest.from_user_id ?? 0)

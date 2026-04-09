@@ -395,7 +395,9 @@ export default function AutoReplyPage() {
               </div>
               <Label className="text-gray-900 font-semibold text-sm">注文ステータス連動</Label>
             </div>
-            <p className="text-gray-600 text-xs">選択したステータスの注文のみ自動返信します</p>
+            <p className="text-gray-600 text-xs">
+              注文のないバイヤー（購入前の問い合わせ）は常に対象です。注文があるバイヤーは選択したステータスの場合のみ返信します。
+            </p>
 
             <div className="flex flex-wrap gap-2">
               {ORDER_STATUSES.map((status) => {

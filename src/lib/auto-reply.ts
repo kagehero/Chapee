@@ -11,6 +11,7 @@ import {
   extractMessageIdFromSendResponse,
   recordStaffMessageKind,
 } from "@/lib/staff-message-kind";
+import { shopeeMessageTimeToMs } from "@/lib/shopee-conversation-utils";
 
 /** Mirrors `AutoReplyCountryStored` in settings API */
 type AutoReplyCountryCfg = {
@@ -62,8 +63,13 @@ async function resolveTemplateContent(templateId: string): Promise<string | null
 }
 
 /**
- * 選択された注文ステータスに合致するバイヤー注文が1件でもあれば true。
- * `selectedJp` が空ならフィルタなし（true）。
+ * 注文ステータスフィルタ判定。
+ *
+ * - `selectedJp` が空 → フィルタなし（常に true）
+ * - バイヤーに注文が **ない**（未購入・購入前問い合わせ） → 常に true
+ *   フィルタは「注文のある買い手を絞り込む」機能であり、
+ *   まだ注文していない買い手を対象外にする意図はない。
+ * - 注文が 1 件以上あり、いずれかが `selectedJp` に該当 → true
  */
 export async function buyerMatchesOrderStatusFilter(
   accessToken: string,
@@ -112,7 +118,8 @@ export async function buyerMatchesOrderStatusFilter(
       }
     }
   }
-  if (sns.length === 0) return false;
+  // 注文が見つからない = 購入前の問い合わせ → ステータスフィルタは関係なし。自動返信対象とする。
+  if (sns.length === 0) return true;
 
   const detailRes = (await getOrderDetail(
     accessToken,
@@ -151,14 +158,120 @@ export async function clearAutoReplySchedule(
   );
 }
 
+/**
+ * Review and correct the auto-reply schedule based on **actual message timestamps**.
+ *
+ * Called whenever the full raw message list is available:
+ *   - Inside syncWebhookConversationFull (covers missed/delayed webhooks)
+ *   - Inside GET /api/chats/[id]/messages (covers manual page refreshes)
+ *
+ * Outcomes:
+ *   - Staff replied after last buyer message  → cancel any pending schedule.
+ *   - Buyer message unanswered               → (re-)schedule due_at = lastBuyerTime + triggerHour.
+ *   - Already overdue                         → due_at = now (fires on next cron tick).
+ *   - Auto-reply already sent after that msg  → no-op (won't double-send).
+ *   - Auto-reply disabled / no template       → clear pending and return.
+ */
+export async function reviewAutoReplySchedule(
+  rawMessages: Record<string, unknown>[],
+  shopId: number,
+  conversationId: string,
+): Promise<void> {
+  const convId = String(conversationId);
+  try {
+    const col = await getCollection<{
+      conversation_id: string;
+      shop_id: number;
+      country?: string;
+      chat_type?: string;
+      auto_reply_pending?: boolean;
+      auto_reply_due_at?: Date | null;
+      last_auto_reply_at?: Date | null;
+    }>("shopee_conversations");
+
+    const existing = await col.findOne({ conversation_id: convId, shop_id: shopId });
+    if (!existing) return;
+    if (existing.chat_type === "notification") return;
+
+    const country = (await getShopCountry(shopId)) ?? existing.country ?? "SG";
+    const countryKey = String(country).toUpperCase();
+    const countries = await getSingletonAutoReplyCountries();
+    const cfg = countries[countryKey];
+
+    if (!cfg?.enabled || !cfg.template_id?.trim() || !ObjectId.isValid(cfg.template_id.trim())) {
+      if (existing.auto_reply_pending) {
+        await clearAutoReplySchedule(convId, shopId);
+      }
+      return;
+    }
+
+    const triggerHour = Math.max(1, Number(cfg.triggerHour) || 1);
+
+    // Determine last buyer and last staff message timestamps from the raw list
+    let lastBuyerMs = 0;
+    let lastStaffMs = 0;
+    for (const msg of rawMessages) {
+      const fromId = Number(msg.from_id ?? msg.from_user_id ?? 0);
+      const ts = shopeeMessageTimeToMs(msg.timestamp ?? msg.created_timestamp ?? msg.time);
+      if (fromId === shopId) {
+        if (ts > lastStaffMs) lastStaffMs = ts;
+      } else if (fromId > 0) {
+        if (ts > lastBuyerMs) lastBuyerMs = ts;
+      }
+    }
+
+    if (lastBuyerMs === 0) return; // no identifiable buyer messages
+
+    // Staff has already replied after the last buyer message → cancel
+    if (lastStaffMs >= lastBuyerMs) {
+      if (existing.auto_reply_pending) {
+        await clearAutoReplySchedule(convId, shopId);
+        console.log(`[auto-reply] review: cleared (staff replied) conv=${convId}`);
+      }
+      return;
+    }
+
+    // Auto-reply was already sent after this buyer message → no-op
+    const lastAutoAt = existing.last_auto_reply_at;
+    if (lastAutoAt instanceof Date && lastAutoAt.getTime() >= lastBuyerMs) return;
+
+    // Compute correct due time from the actual buyer message timestamp
+    const dueMs = lastBuyerMs + triggerHour * 60 * 60 * 1000;
+    const now = Date.now();
+    // If already past due, schedule for the next cron tick
+    const due = new Date(dueMs > now ? dueMs : now);
+
+    // Skip write if already scheduled with the same due time (±1 min tolerance)
+    const existingDue = existing.auto_reply_due_at?.getTime?.();
+    if (
+      existing.auto_reply_pending === true &&
+      typeof existingDue === "number" &&
+      Math.abs(existingDue - due.getTime()) < 60_000
+    ) {
+      return;
+    }
+
+    await col.updateOne(
+      { conversation_id: convId, shop_id: shopId },
+      { $set: { auto_reply_pending: true, auto_reply_due_at: due, updated_at: new Date() } }
+    );
+
+    console.log(
+      `[auto-reply] review: (re-)scheduled conv=${convId} shop=${shopId} due=${due.toISOString()} (${triggerHour}h from last buyer msg)`
+    );
+  } catch (e) {
+    console.warn(`[auto-reply] reviewAutoReplySchedule failed conv=${convId}:`, e);
+  }
+}
+
 type WebhookMsg = {
   shop_id: number;
   conversation_id: string;
   to_id: number;
   to_name: string;
   from_id: number;
-  /** バイヤーの最新メッセージ受信時刻（DBに記録済みの値）。未指定なら Date.now() を使用 */
-  last_buyer_message_time?: Date;
+  /** DB sync returns a Date; webhook data may supply a raw ms number. */
+  last_buyer_message_time?: Date | number;
 };
 
 /**
@@ -200,9 +313,7 @@ export async function handleAutoReplyOnWebhookMessage(
   if (!ObjectId.isValid(cfg.template_id.trim())) return;
 
   const triggerHour = Math.max(1, Number(cfg.triggerHour) || 1);
-  // バイヤーの最新メッセージ時刻を基準に due を計算（Webhook遅延があっても正確）
-  const baseTime = data.last_buyer_message_time?.getTime() ?? Date.now();
-  const due = new Date(baseTime + triggerHour * 60 * 60 * 1000);
+  const due = new Date(Date.now() + triggerHour * 60 * 60 * 1000);
 
   await col.updateOne(
     { conversation_id: convId, shop_id },
@@ -216,7 +327,7 @@ export async function handleAutoReplyOnWebhookMessage(
   );
 
   console.log(
-    `[auto-reply] Scheduled for ${convId} shop=${shop_id} due=${due.toISOString()} (${triggerHour}h from ${data.last_buyer_message_time?.toISOString() ?? "now"})`
+    `[auto-reply] Scheduled for ${convId} shop=${shop_id} due=${due.toISOString()} (${triggerHour}h)`
   );
 }
 

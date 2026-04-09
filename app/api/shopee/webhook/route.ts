@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCollection } from "@/lib/mongodb";
-import { handleAutoReplyOnWebhookMessage } from "@/lib/auto-reply";
 import { syncWebhookConversationFull } from "@/lib/shopee-conversation-db-sync";
 
 /**
@@ -92,25 +91,8 @@ async function handleNewMessage(data: Record<string, unknown>) {
     console.log(
       `[Webhook] DB synced ${sync.messageCount} messages for ${conversationId}`
     );
-
-    const hint = sync.autoReplyHint;
-    if (!hint) return;
-
-    const fromId =
-      numU(data.from_id) ||
-      numU(data.from_user_id) ||
-      hint.from_id;
-    const toId = numU(data.to_id) || hint.to_id;
-    const toName = strU(data.to_name) || hint.to_name;
-
-    await handleAutoReplyOnWebhookMessage({
-      shop_id: shopId,
-      conversation_id: conversationId,
-      to_id: toId,
-      to_name: toName,
-      from_id: fromId,
-      last_buyer_message_time: hint.last_buyer_message_time,
-    });
+    // Auto-reply schedule is reviewed inside syncWebhookConversationFull
+    // using actual message timestamps, so no separate scheduling call is needed.
   } catch (error) {
     console.error("[Webhook] handleNewMessage error:", error);
   }
