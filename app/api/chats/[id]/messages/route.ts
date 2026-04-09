@@ -10,12 +10,13 @@ import {
   displayFromShopeeChatMessage,
   extractBuyerAvatarFromShopee,
   extractShopLogoFromShopInfo,
+  extractInquiredItemsFromOneConversation,
   inferChatMessageSender,
   inferStaffMessageAutoHint,
   shopeeMessageTimeToMs,
 } from "@/lib/shopee-conversation-utils";
 import { buildBuyerItemUrl, buildSellerOrderUrl } from "@/lib/shopee-order-utils";
-import { fetchItemCatalogMapByIds } from "@/lib/shopee-product-utils";
+import { fetchItemCatalogMapByIds, fetchOrderItemInfoMap } from "@/lib/shopee-product-utils";
 import { kindMapFromLog } from "@/lib/staff-message-kind";
 import { getStoredRawMessagesForConversation } from "@/lib/shopee-conversation-db-sync";
 import { reviewAutoReplySchedule } from "@/lib/auto-reply";
@@ -67,6 +68,13 @@ export async function GET(
     let customerAvatar: string | null =
       conversation.customer_avatar_url ?? null;
     let shopLogo: string | null = null;
+    let inquiredItems: {
+      item_id?: string;
+      shop_id?: string;
+      name?: string;
+      image_url?: string;
+      item_url?: string;
+    }[] = [];
 
     /** Webhook が書いたキャッシュ。API 失敗時のみフォールバックに使う。 */
     const storedRaws = await getStoredRawMessagesForConversation(
@@ -124,6 +132,74 @@ export async function GET(
           (resp ? extractBuyerAvatarFromShopee(resp) : undefined) ??
           extractBuyerAvatarFromShopee(d);
         if (fromApi) customerAvatar = fromApi;
+
+        // Extract products the buyer is inquiring about from the conversation object
+        // Debug: log the raw keys at each nesting level so we can map the real field names
+        const resp2 = d.response as Record<string, unknown> | undefined;
+        const convObj2 = (resp2?.conversation ?? resp2 ?? d) as Record<string, unknown>;
+        console.log(
+          `[inquired-debug] conv=${conversationId} root_keys=${Object.keys(d).join(",")} resp_keys=${Object.keys(resp2 ?? {}).join(",")} convObj_keys=${Object.keys(convObj2).join(",")}`
+        );
+        const latestContent = convObj2.latest_message_content;
+        if (latestContent && typeof latestContent === "object") {
+          console.log(
+            `[inquired-debug] latest_message_content keys=${Object.keys(latestContent as object).join(",")}`,
+            JSON.stringify(latestContent).slice(0, 400)
+          );
+        }
+        if (convObj2.item_list !== undefined || convObj2.items !== undefined) {
+          console.log(
+            `[inquired-debug] item_list=${JSON.stringify(convObj2.item_list).slice(0, 400)}`
+          );
+        }
+        const rawInquired = extractInquiredItemsFromOneConversation(d);
+        console.log(
+          `[inquired-debug] rawInquired=${rawInquired.length}`,
+          JSON.stringify(rawInquired).slice(0, 400)
+        );
+        if (rawInquired.length > 0) {
+          const inquiredItemIds = rawInquired
+            .map((it) => Number(it.item_id))
+            .filter((n) => Number.isFinite(n) && n > 0);
+
+          // Enrich with catalog (name + image) when missing
+          const needsEnrich = inquiredItemIds.filter((n) => {
+            const raw = rawInquired.find((it) => Number(it.item_id) === n);
+            return !raw?.name || !raw?.image_url;
+          });
+
+          let catalogMap = new Map<number, { name?: string; image_url?: string }>();
+          if (needsEnrich.length > 0) {
+            try {
+              const { fetchItemCatalogMapByIds } = await import("@/lib/shopee-product-utils");
+              catalogMap = await fetchItemCatalogMapByIds(
+                accessToken,
+                conversation.shop_id,
+                needsEnrich,
+                countryOpt
+              );
+            } catch (e) {
+              console.warn("[messages] inquired item enrichment failed:", e);
+            }
+          }
+
+          inquiredItems = rawInquired.map((it) => {
+            const n = Number(it.item_id);
+            const extra = Number.isFinite(n) && n > 0 ? catalogMap.get(n) : undefined;
+            const shopIdForUrl = it.shop_id ?? String(conversation.shop_id);
+            const item_url =
+              it.item_id && shopIdForUrl
+                ? buildBuyerItemUrl(countryResolved, shopIdForUrl, it.item_id)
+                : undefined;
+            return {
+              item_id: it.item_id,
+              shop_id: it.shop_id,
+              name: extra?.name || it.name,
+              image_url: extra?.image_url || it.image_url,
+              item_url,
+            };
+          });
+        }
       }
 
       if (shopRes.status === "fulfilled" && shopRes.value) {
@@ -134,6 +210,79 @@ export async function GET(
       }
     } catch (e) {
       console.warn("[messages] avatar / shop logo enrichment:", e);
+    }
+
+    // Fallback: if get_one_conversation yielded no inquired items, extract from
+    // the first buyer messages (the opening inquiry is always a buyer message).
+    if (inquiredItems.length === 0) {
+      const { flattenShopeeChatPayload } = await import("@/lib/shopee-conversation-utils");
+      const seen = new Set<string>();
+      const fallbackItemIds: number[] = [];
+      const fallbackRaw: { item_id?: string; shop_id?: string; name?: string; image_url?: string }[] = [];
+
+      for (const msg of rawList.slice(0, 10)) {
+        const sender = inferChatMessageSender(
+          msg,
+          conversation.shop_id,
+          conversation.customer_id
+        );
+        if (sender === "staff") continue;
+
+        const flat = flattenShopeeChatPayload(msg as Record<string, unknown>);
+        const itemId = flat.item_id ?? flat.itemid;
+        const shopId = String(flat.shop_id ?? flat.shopid ?? conversation.shop_id);
+        const nameRaw = flat.item_name ?? flat.name;
+        const name = typeof nameRaw === "string" && nameRaw.trim() ? nameRaw.trim() : undefined;
+        const imgRaw = flat.image_url ?? flat.thumb_url ?? flat.image;
+        const image_url = typeof imgRaw === "string" && imgRaw.trim() ? imgRaw.trim() : undefined;
+
+        if (!itemId && !name) continue;
+        const key = String(itemId ?? `name:${name}`);
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        const n = Number(itemId);
+        if (Number.isFinite(n) && n > 0) fallbackItemIds.push(n);
+        fallbackRaw.push({ item_id: itemId ? String(itemId) : undefined, shop_id: shopId, name, image_url });
+        console.log(`[inquired-fallback] conv=${conversationId} item_id=${itemId} name=${name} image=${image_url}`);
+      }
+
+      if (fallbackRaw.length > 0) {
+        let fallbackCatalog = new Map<number, { name?: string; image_url?: string }>();
+        const needsFallbackEnrich = fallbackItemIds.filter((n) => {
+          const raw = fallbackRaw.find((it) => Number(it.item_id) === n);
+          return !raw?.name || !raw?.image_url;
+        });
+        if (needsFallbackEnrich.length > 0) {
+          try {
+            fallbackCatalog = await fetchItemCatalogMapByIds(
+              accessToken,
+              conversation.shop_id,
+              needsFallbackEnrich,
+              countryOpt
+            );
+          } catch (e) {
+            console.warn("[messages] fallback inquired item enrichment failed:", e);
+          }
+        }
+
+        inquiredItems = fallbackRaw.map((it) => {
+          const n = Number(it.item_id);
+          const extra = Number.isFinite(n) && n > 0 ? fallbackCatalog.get(n) : undefined;
+          const shopIdForUrl = it.shop_id ?? String(conversation.shop_id);
+          const item_url =
+            it.item_id && shopIdForUrl
+              ? buildBuyerItemUrl(countryResolved, shopIdForUrl, it.item_id)
+              : undefined;
+          return {
+            item_id: it.item_id,
+            shop_id: it.shop_id,
+            name: extra?.name || it.name,
+            image_url: extra?.image_url || it.image_url,
+            item_url,
+          };
+        });
+      }
     }
 
     if (
@@ -169,6 +318,26 @@ export async function GET(
       });
       const msgIdStr = String(msg.message_id ?? msg.id ?? index);
       const display = displayFromShopeeChatMessage(msg);
+
+      // Debug: log raw payload when a message falls back to [bracket] format
+      // so unknown Shopee message structures can be identified and handled.
+      if (
+        display.kind === "text" &&
+        display.summary.startsWith("[") &&
+        display.summary.endsWith("]")
+      ) {
+        console.log(
+          `[messages-debug] unresolved bracket summary conv=${conversationId} msgId=${msgIdStr} type=${String(msg.message_type ?? msg.type ?? "")} summary=${display.summary}`,
+          JSON.stringify(msg).slice(0, 1200)
+        );
+      }
+      // Debug: also log first few messages raw structure (to see item_id paths)
+      if (index < 2) {
+        console.log(
+          `[msg-raw-debug] conv=${conversationId} idx=${index} type=${String(msg.message_type ?? msg.type ?? "")} kind=${display.kind} summary=${display.summary.slice(0, 60)}`,
+          JSON.stringify(msg).slice(0, 600)
+        );
+      }
       const orderSn = display.order?.order_sn?.trim();
       const order_url =
         orderSn && orderSn.length >= 8
@@ -255,6 +424,32 @@ export async function GET(
       }
     }
 
+    // Enrich order cards with product image/name from get_order_detail
+    const orderSnsForEnrich = messages
+      .filter((m) => m.content_kind === "order" && m.order_card?.order_sn)
+      .map((m) => m.order_card!.order_sn!.trim())
+      .filter(Boolean);
+
+    if (orderSnsForEnrich.length > 0) {
+      const orderItemMap = await fetchOrderItemInfoMap(
+        accessToken,
+        conversation.shop_id,
+        orderSnsForEnrich,
+        countryOpt
+      );
+      for (const m of messages) {
+        if (m.content_kind !== "order" || !m.order_card?.order_sn) continue;
+        const info = orderItemMap.get(m.order_card.order_sn.trim());
+        if (!info) continue;
+        m.order_card = {
+          ...m.order_card,
+          item_name: info.item_name,
+          item_image_url: info.item_image_url,
+          item_id: info.item_id,
+        };
+      }
+    }
+
     messages.sort((a, b) => a.timestamp_ms - b.timestamp_ms);
 
     return NextResponse.json({
@@ -266,6 +461,7 @@ export async function GET(
         shop_id: conversation.shop_id,
         customer_avatar_url: customerAvatar,
         shop_logo_url: shopLogo,
+        inquired_items: inquiredItems,
       },
       messages,
     });

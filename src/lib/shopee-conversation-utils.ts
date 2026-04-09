@@ -70,6 +70,101 @@ export function extractBuyerAvatarFromShopee(conv: Record<string, unknown>): str
   return undefined;
 }
 
+export type InquiredItem = {
+  item_id?: string;
+  shop_id?: string;
+  name?: string;
+  image_url?: string;
+};
+
+/**
+ * `get_one_conversation` のレスポンスからバイヤーが問い合わせ中の商品情報を抽出する。
+ *
+ * Shopee は会話オブジェクトに `item_list` / `latest_message_content.item` /
+ * `last_read_message_content.item` 等で商品を返すことがある。
+ * 各候補を試して item_id を持つものをまとめて返す。
+ */
+export function extractInquiredItemsFromOneConversation(
+  data: Record<string, unknown>
+): InquiredItem[] {
+  const items: InquiredItem[] = [];
+  const seen = new Set<string>();
+
+  const addItem = (raw: unknown): void => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const o = raw as Record<string, unknown>;
+    const id =
+      typeof o.item_id === "number"
+        ? String(o.item_id)
+        : typeof o.item_id === "string"
+          ? o.item_id.trim()
+          : typeof o.itemid === "number"
+            ? String(o.itemid)
+            : typeof o.itemid === "string"
+              ? o.itemid.trim()
+              : undefined;
+    const shopId =
+      typeof o.shop_id === "number"
+        ? String(o.shop_id)
+        : typeof o.shop_id === "string"
+          ? o.shop_id.trim()
+          : typeof o.shopid === "number"
+            ? String(o.shopid)
+            : typeof o.shopid === "string"
+              ? o.shopid.trim()
+              : undefined;
+    const key = id ?? `noId_${JSON.stringify(o).slice(0, 40)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    const nameRaw =
+      o.item_name ?? o.name ?? o.item_title ?? o.title ?? o.product_name;
+    const name =
+      typeof nameRaw === "string" && nameRaw.trim() ? nameRaw.trim() : undefined;
+
+    const imgRaw =
+      o.image_url ?? o.thumb_url ?? o.thumbnail_url ?? o.item_image ?? o.cover_image;
+    const image_url =
+      typeof imgRaw === "string" && /^https?:\/\//i.test(imgRaw.trim())
+        ? imgRaw.trim()
+        : undefined;
+
+    items.push({ item_id: id, shop_id: shopId, name, image_url });
+  };
+
+  const addFromList = (list: unknown): void => {
+    if (Array.isArray(list)) list.forEach(addItem);
+  };
+
+  const r = data.response as Record<string, unknown> | undefined;
+  const conv = (r?.conversation ?? r ?? data) as Record<string, unknown>;
+
+  // item_list at conversation root
+  addFromList(conv.item_list);
+  addFromList(conv.items);
+
+  // latest / last_read message content → item field
+  for (const msgField of [
+    "latest_message_content",
+    "last_read_message_content",
+    "first_message_content",
+  ]) {
+    const mc = conv[msgField];
+    if (mc && typeof mc === "object" && !Array.isArray(mc)) {
+      const mco = mc as Record<string, unknown>;
+      addItem(mco.item);
+      addFromList(mco.item_list);
+      addFromList(mco.items);
+    }
+  }
+
+  // Direct item fields on the conversation object
+  addItem(conv.item);
+  addItem(conv.product);
+
+  return items.filter((it) => it.item_id || it.name);
+}
+
 /** get_shop_info レスポンスから店舗ロゴ URL */
 export function extractShopLogoFromShopInfo(data: Record<string, unknown>): string | undefined {
   const r = data.response as Record<string, unknown> | undefined;
@@ -171,7 +266,13 @@ export type ShopeeMessageDisplay = {
     /** 注文カードではなく商品を出すとき、紐づく注文があれば補足表示用 */
     related_order_sn?: string;
   };
-  order?: { order_sn?: string };
+  order?: {
+    order_sn?: string;
+    /** get_order_detail から補完（メッセージ route で後処理） */
+    item_name?: string;
+    item_image_url?: string;
+    item_id?: string;
+  };
   sticker?: {
     image_url?: string;
     sticker_id?: string;
@@ -233,6 +334,18 @@ function mergeNestedItemLikeIntoFlat(
   }
 }
 
+/**
+ * `item_list` 配列の先頭要素を flat にマージ（product inquiry / bundle deal 対応）
+ * order.item_list と content.item_list / root item_list で共通的に使う。
+ */
+function mergeFirstItemFromList(flat: Record<string, unknown>, list: unknown): void {
+  if (!Array.isArray(list) || list.length === 0) return;
+  const first = list[0];
+  if (first && typeof first === "object" && !Array.isArray(first)) {
+    Object.assign(flat, first as Record<string, unknown>);
+  }
+}
+
 /** message / content をフラット化（JSON 文字列も展開）してキー検索しやすくする */
 export function flattenShopeeChatPayload(msg: Record<string, unknown>): Record<string, unknown> {
   const flat: Record<string, unknown> = { ...msg };
@@ -255,12 +368,96 @@ export function flattenShopeeChatPayload(msg: Record<string, unknown>): Record<s
   if (order && typeof order === "object" && !Array.isArray(order)) {
     const orec = order as Record<string, unknown>;
     Object.assign(flat, orec);
-    const il = orec.item_list;
-    if (Array.isArray(il) && il.length > 0 && il[0] && typeof il[0] === "object") {
-      Object.assign(flat, il[0] as Record<string, unknown>);
+    mergeFirstItemFromList(flat, orec.item_list);
+  }
+
+  // ------------------------------------------------------------------
+  // Shopee product-inquiry / bundle-deal / deal messages nest item info
+  // under content.item_list[0], content.item, content.bundle_deal.item_list[0]
+  // or at root item_list[0]. Flatten each so item_id surfaces correctly.
+  // ------------------------------------------------------------------
+  const contentObj: Record<string, unknown> | null =
+    msg.content && typeof msg.content === "object" && !Array.isArray(msg.content)
+      ? (msg.content as Record<string, unknown>)
+      : null;
+
+  if (contentObj) {
+    // content.item_list[0]
+    mergeFirstItemFromList(flat, contentObj.item_list);
+    // content.items[0]
+    mergeFirstItemFromList(flat, contentObj.items);
+    // content.item
+    assignIfObject(flat, contentObj.item);
+    // content.bundle_deal.item_list[0] — bundle deals
+    const bd = contentObj.bundle_deal;
+    if (bd && typeof bd === "object" && !Array.isArray(bd)) {
+      const bdo = bd as Record<string, unknown>;
+      assignIfObject(flat, bdo);
+      mergeFirstItemFromList(flat, bdo.item_list);
+    }
+    // content.product_link / content.product
+    assignIfObject(flat, contentObj.product_link);
+    assignIfObject(flat, contentObj.product);
+  }
+
+  // root-level item_list (some Shopee endpoints return it at the top)
+  mergeFirstItemFromList(flat, msg.item_list);
+
+  // Last-resort deep scan: if item_id is still not in flat, walk the entire
+  // message tree to find the first object that carries item_id (covers Shopee
+  // bundle/inquiry message types whose exact nesting is unknown).
+  if (!flat.item_id && !flat.itemid) {
+    const found = deepFindItemId(msg);
+    if (found) {
+      if (found.item_id) flat.item_id = found.item_id;
+      if (found.shop_id) flat.shop_id = flat.shop_id ?? found.shop_id;
+      if (found.item_name) flat.item_name = flat.item_name ?? found.item_name;
+      if (found.name) flat.name = flat.name ?? found.name;
+      if (found.image_url) flat.image_url = flat.image_url ?? found.image_url;
+      if (found.thumb_url) flat.thumb_url = flat.thumb_url ?? found.thumb_url;
     }
   }
+
   return flat;
+}
+
+/**
+ * Walk the full message object tree looking for the first leaf object that has
+ * item_id / itemid. Returns a partial flat record with the key fields.
+ */
+function deepFindItemId(
+  obj: unknown,
+  depth = 0
+): Record<string, unknown> | undefined {
+  if (depth > 8 || obj == null || typeof obj !== "object") return undefined;
+  if (Array.isArray(obj)) {
+    for (const el of obj) {
+      const r = deepFindItemId(el, depth + 1);
+      if (r) return r;
+    }
+    return undefined;
+  }
+  const o = obj as Record<string, unknown>;
+  const hasItemId =
+    (typeof o.item_id === "number" && o.item_id > 0) ||
+    (typeof o.item_id === "string" && o.item_id.trim()) ||
+    (typeof o.itemid === "number" && o.itemid > 0) ||
+    (typeof o.itemid === "string" && o.itemid.trim());
+  if (hasItemId) {
+    return {
+      item_id: o.item_id ?? o.itemid,
+      shop_id: o.shop_id ?? o.shopid,
+      item_name: o.item_name ?? o.name ?? o.item_title ?? o.title,
+      name: o.item_name ?? o.name ?? o.item_title ?? o.title,
+      image_url: o.image_url ?? o.thumb_url ?? o.thumbnail_url ?? o.item_image,
+      thumb_url: o.thumb_url ?? o.image_url ?? o.thumbnail_url,
+    };
+  }
+  for (const v of Object.values(o)) {
+    const r = deepFindItemId(v, depth + 1);
+    if (r) return r;
+  }
+  return undefined;
 }
 
 /** 本文・リンクに含まれる Shopee 商品 URL から item_id / shop_id を拾う */
@@ -462,12 +659,16 @@ export function displayFromShopeeChatMessage(msg: Record<string, unknown>): Shop
 
   /**
    * 注文カードより商品カードを優先（未購入の問い合わせでは注文番号より商品が重要）
+   * "bundle" / "deal" / "link" は商品問い合わせ起動時に Shopee が送る複合メッセージ。
    */
   const looksLikeProductMessage =
     mt.includes("item") ||
     mt.includes("item_card") ||
     mt.includes("product") ||
     mt.includes("product_card") ||
+    mt.includes("product_link") ||
+    mt.includes("bundle") ||   // bundle deal 問い合わせ
+    mt.includes("deal") ||     // deal_card 系
     mt.includes("inquiry") ||
     mt.includes("listing") ||
     !!resolvedItemId ||

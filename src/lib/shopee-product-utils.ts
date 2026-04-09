@@ -1,4 +1,4 @@
-import { getItemBaseInfo, type ShopeeApiOptions } from "./shopee-api";
+import { getItemBaseInfo, getOrderDetail, type ShopeeApiOptions } from "./shopee-api";
 import { pickOrderItemImageUrl } from "./shopee-order-utils";
 
 export type ItemCatalogEntry = { name?: string; image_url?: string };
@@ -25,6 +25,62 @@ export function itemCatalogMapFromItemBaseInfoResponse(
     map.set(n, { name, image_url });
   }
   return map;
+}
+
+export type OrderItemInfo = {
+  item_name?: string;
+  item_image_url?: string;
+  item_id?: string;
+};
+
+/**
+ * 注文 SN 一覧から注文内の商品名・画像を取得（50 件ずつ）
+ * チャット内の order カードに商品サムネを表示するために使う。
+ */
+export async function fetchOrderItemInfoMap(
+  accessToken: string,
+  shopId: number,
+  orderSnList: string[],
+  options?: ShopeeApiOptions
+): Promise<Map<string, OrderItemInfo>> {
+  const out = new Map<string, OrderItemInfo>();
+  const uniq = [...new Set(orderSnList.map((s) => s.trim()).filter(Boolean))];
+  for (let i = 0; i < uniq.length; i += 50) {
+    const chunk = uniq.slice(i, i + 50);
+    try {
+      const data = (await getOrderDetail(
+        accessToken,
+        shopId,
+        chunk,
+        ["item_list"],
+        options
+      )) as Record<string, unknown>;
+      const r = data.response as Record<string, unknown> | undefined;
+      const orderList = (r?.order_list ?? []) as unknown[];
+      for (const raw of orderList) {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+        const o = raw as Record<string, unknown>;
+        const sn = typeof o.order_sn === "string" ? o.order_sn.trim() : "";
+        if (!sn) continue;
+        const itemList = o.item_list;
+        if (!Array.isArray(itemList) || itemList.length === 0) continue;
+        const first = itemList[0] as Record<string, unknown>;
+        const item_name =
+          typeof first.item_name === "string" && first.item_name.trim()
+            ? first.item_name.trim()
+            : typeof first.name === "string" && first.name.trim()
+              ? first.name.trim()
+              : undefined;
+        const item_image_url = pickOrderItemImageUrl(first);
+        const item_id =
+          first.item_id != null ? String(first.item_id) : undefined;
+        out.set(sn, { item_name, item_image_url, item_id });
+      }
+    } catch (e) {
+      console.warn("[fetchOrderItemInfoMap] get_order_detail failed", e);
+    }
+  }
+  return out;
 }
 
 /**
