@@ -169,6 +169,19 @@ export async function GET(
       });
       const msgIdStr = String(msg.message_id ?? msg.id ?? index);
       const display = displayFromShopeeChatMessage(msg);
+
+      // Debug: log raw payload when a message falls back to [bracket] format
+      // so unknown Shopee message structures can be identified and handled.
+      if (
+        display.kind === "text" &&
+        display.summary.startsWith("[") &&
+        display.summary.endsWith("]")
+      ) {
+        console.log(
+          `[messages-debug] unresolved bracket summary conv=${conversationId} msgId=${msgIdStr} summary=${display.summary}`,
+          JSON.stringify(msg).slice(0, 800)
+        );
+      }
       const orderSn = display.order?.order_sn?.trim();
       const order_url =
         orderSn && orderSn.length >= 8

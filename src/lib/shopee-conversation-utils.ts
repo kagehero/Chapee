@@ -233,6 +233,18 @@ function mergeNestedItemLikeIntoFlat(
   }
 }
 
+/**
+ * `item_list` 配列の先頭要素を flat にマージ（product inquiry / bundle deal 対応）
+ * order.item_list と content.item_list / root item_list で共通的に使う。
+ */
+function mergeFirstItemFromList(flat: Record<string, unknown>, list: unknown): void {
+  if (!Array.isArray(list) || list.length === 0) return;
+  const first = list[0];
+  if (first && typeof first === "object" && !Array.isArray(first)) {
+    Object.assign(flat, first as Record<string, unknown>);
+  }
+}
+
 /** message / content をフラット化（JSON 文字列も展開）してキー検索しやすくする */
 export function flattenShopeeChatPayload(msg: Record<string, unknown>): Record<string, unknown> {
   const flat: Record<string, unknown> = { ...msg };
@@ -255,11 +267,41 @@ export function flattenShopeeChatPayload(msg: Record<string, unknown>): Record<s
   if (order && typeof order === "object" && !Array.isArray(order)) {
     const orec = order as Record<string, unknown>;
     Object.assign(flat, orec);
-    const il = orec.item_list;
-    if (Array.isArray(il) && il.length > 0 && il[0] && typeof il[0] === "object") {
-      Object.assign(flat, il[0] as Record<string, unknown>);
-    }
+    mergeFirstItemFromList(flat, orec.item_list);
   }
+
+  // ------------------------------------------------------------------
+  // Shopee product-inquiry / bundle-deal / deal messages nest item info
+  // under content.item_list[0], content.item, content.bundle_deal.item_list[0]
+  // or at root item_list[0]. Flatten each so item_id surfaces correctly.
+  // ------------------------------------------------------------------
+  const contentObj: Record<string, unknown> | null =
+    msg.content && typeof msg.content === "object" && !Array.isArray(msg.content)
+      ? (msg.content as Record<string, unknown>)
+      : null;
+
+  if (contentObj) {
+    // content.item_list[0]
+    mergeFirstItemFromList(flat, contentObj.item_list);
+    // content.items[0]
+    mergeFirstItemFromList(flat, contentObj.items);
+    // content.item
+    assignIfObject(flat, contentObj.item);
+    // content.bundle_deal.item_list[0] — bundle deals
+    const bd = contentObj.bundle_deal;
+    if (bd && typeof bd === "object" && !Array.isArray(bd)) {
+      const bdo = bd as Record<string, unknown>;
+      assignIfObject(flat, bdo);
+      mergeFirstItemFromList(flat, bdo.item_list);
+    }
+    // content.product_link / content.product
+    assignIfObject(flat, contentObj.product_link);
+    assignIfObject(flat, contentObj.product);
+  }
+
+  // root-level item_list (some Shopee endpoints return it at the top)
+  mergeFirstItemFromList(flat, msg.item_list);
+
   return flat;
 }
 
@@ -462,12 +504,16 @@ export function displayFromShopeeChatMessage(msg: Record<string, unknown>): Shop
 
   /**
    * 注文カードより商品カードを優先（未購入の問い合わせでは注文番号より商品が重要）
+   * "bundle" / "deal" / "link" は商品問い合わせ起動時に Shopee が送る複合メッセージ。
    */
   const looksLikeProductMessage =
     mt.includes("item") ||
     mt.includes("item_card") ||
     mt.includes("product") ||
     mt.includes("product_card") ||
+    mt.includes("product_link") ||
+    mt.includes("bundle") ||   // bundle deal 問い合わせ
+    mt.includes("deal") ||     // deal_card 系
     mt.includes("inquiry") ||
     mt.includes("listing") ||
     !!resolvedItemId ||
