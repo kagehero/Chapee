@@ -70,6 +70,101 @@ export function extractBuyerAvatarFromShopee(conv: Record<string, unknown>): str
   return undefined;
 }
 
+export type InquiredItem = {
+  item_id?: string;
+  shop_id?: string;
+  name?: string;
+  image_url?: string;
+};
+
+/**
+ * `get_one_conversation` のレスポンスからバイヤーが問い合わせ中の商品情報を抽出する。
+ *
+ * Shopee は会話オブジェクトに `item_list` / `latest_message_content.item` /
+ * `last_read_message_content.item` 等で商品を返すことがある。
+ * 各候補を試して item_id を持つものをまとめて返す。
+ */
+export function extractInquiredItemsFromOneConversation(
+  data: Record<string, unknown>
+): InquiredItem[] {
+  const items: InquiredItem[] = [];
+  const seen = new Set<string>();
+
+  const addItem = (raw: unknown): void => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const o = raw as Record<string, unknown>;
+    const id =
+      typeof o.item_id === "number"
+        ? String(o.item_id)
+        : typeof o.item_id === "string"
+          ? o.item_id.trim()
+          : typeof o.itemid === "number"
+            ? String(o.itemid)
+            : typeof o.itemid === "string"
+              ? o.itemid.trim()
+              : undefined;
+    const shopId =
+      typeof o.shop_id === "number"
+        ? String(o.shop_id)
+        : typeof o.shop_id === "string"
+          ? o.shop_id.trim()
+          : typeof o.shopid === "number"
+            ? String(o.shopid)
+            : typeof o.shopid === "string"
+              ? o.shopid.trim()
+              : undefined;
+    const key = id ?? `noId_${JSON.stringify(o).slice(0, 40)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    const nameRaw =
+      o.item_name ?? o.name ?? o.item_title ?? o.title ?? o.product_name;
+    const name =
+      typeof nameRaw === "string" && nameRaw.trim() ? nameRaw.trim() : undefined;
+
+    const imgRaw =
+      o.image_url ?? o.thumb_url ?? o.thumbnail_url ?? o.item_image ?? o.cover_image;
+    const image_url =
+      typeof imgRaw === "string" && /^https?:\/\//i.test(imgRaw.trim())
+        ? imgRaw.trim()
+        : undefined;
+
+    items.push({ item_id: id, shop_id: shopId, name, image_url });
+  };
+
+  const addFromList = (list: unknown): void => {
+    if (Array.isArray(list)) list.forEach(addItem);
+  };
+
+  const r = data.response as Record<string, unknown> | undefined;
+  const conv = (r?.conversation ?? r ?? data) as Record<string, unknown>;
+
+  // item_list at conversation root
+  addFromList(conv.item_list);
+  addFromList(conv.items);
+
+  // latest / last_read message content → item field
+  for (const msgField of [
+    "latest_message_content",
+    "last_read_message_content",
+    "first_message_content",
+  ]) {
+    const mc = conv[msgField];
+    if (mc && typeof mc === "object" && !Array.isArray(mc)) {
+      const mco = mc as Record<string, unknown>;
+      addItem(mco.item);
+      addFromList(mco.item_list);
+      addFromList(mco.items);
+    }
+  }
+
+  // Direct item fields on the conversation object
+  addItem(conv.item);
+  addItem(conv.product);
+
+  return items.filter((it) => it.item_id || it.name);
+}
+
 /** get_shop_info レスポンスから店舗ロゴ URL */
 export function extractShopLogoFromShopInfo(data: Record<string, unknown>): string | undefined {
   const r = data.response as Record<string, unknown> | undefined;
@@ -171,7 +266,13 @@ export type ShopeeMessageDisplay = {
     /** 注文カードではなく商品を出すとき、紐づく注文があれば補足表示用 */
     related_order_sn?: string;
   };
-  order?: { order_sn?: string };
+  order?: {
+    order_sn?: string;
+    /** get_order_detail から補完（メッセージ route で後処理） */
+    item_name?: string;
+    item_image_url?: string;
+    item_id?: string;
+  };
   sticker?: {
     image_url?: string;
     sticker_id?: string;

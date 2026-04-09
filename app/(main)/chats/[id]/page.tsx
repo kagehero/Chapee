@@ -64,7 +64,12 @@ type Message = {
     shop_id?: string;
     related_order_sn?: string;
   };
-  order_card?: { order_sn?: string };
+  order_card?: {
+    order_sn?: string;
+    item_name?: string;
+    item_image_url?: string;
+    item_id?: string;
+  };
   sticker_card?: { image_url?: string; sticker_id?: string; package_id?: string };
   image_card?: { url?: string };
   order_url?: string;
@@ -156,24 +161,42 @@ function ChatMessageBody({ msg, isStaff }: { msg: Message; isStaff: boolean }) {
   if (kind === "order") {
     return (
       <div className={card}>
-        <p className="text-[11px] font-semibold opacity-80 mb-1">注文</p>
-        {msg.order_card?.order_sn ? (
-          <p className="text-sm font-mono break-all">{msg.order_card.order_sn}</p>
-        ) : null}
-        {msg.order_url ? (
-          <a
-            href={msg.order_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={cn(
-              "inline-flex items-center gap-1 text-xs mt-2 underline underline-offset-2",
-              isStaff ? "text-primary-foreground/95" : "text-primary"
-            )}
-          >
-            セラー注文を開く
-            <ExternalLink size={10} />
-          </a>
-        ) : null}
+        <div className="flex gap-2.5 items-start">
+          {msg.order_card?.item_image_url ? (
+            <img
+              src={msg.order_card.item_image_url}
+              alt={msg.order_card?.item_name?.trim() || "商品"}
+              className="w-16 h-16 rounded-md object-cover shrink-0 border border-black/10"
+            />
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-semibold opacity-80 mb-0.5">注文</p>
+            {msg.order_card?.item_name ? (
+              <p className="text-sm font-medium leading-snug break-words mb-1">
+                {msg.order_card.item_name}
+              </p>
+            ) : null}
+            {msg.order_card?.order_sn ? (
+              <p className="text-[11px] font-mono break-all opacity-70">
+                {msg.order_card.order_sn}
+              </p>
+            ) : null}
+            {msg.order_url ? (
+              <a
+                href={msg.order_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  "inline-flex items-center gap-1 text-xs mt-2 underline underline-offset-2",
+                  isStaff ? "text-primary-foreground/95" : "text-primary"
+                )}
+              >
+                セラー注文を開く
+                <ExternalLink size={10} />
+              </a>
+            ) : null}
+          </div>
+        </div>
       </div>
     );
   }
@@ -200,21 +223,15 @@ function ChatMessageBody({ msg, isStaff }: { msg: Message; isStaff: boolean }) {
 function formatMessageTimestamps(ms: number) {
   const d = new Date(ms);
   return {
-    time: d.toLocaleTimeString("ja-JP", { timeZone: "Asia/Tokyo", hour: "2-digit", minute: "2-digit" }),
+    time: d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }),
     datetime: d.toLocaleString("ja-JP", {
-      timeZone: "Asia/Tokyo",
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
     }),
-    date_key: d.toLocaleDateString("ja-JP", {
-      timeZone: "Asia/Tokyo",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).replace(/\//g, "-"),
+    date_key: d.toISOString().slice(0, 10),
     timestamp_ms: ms,
   };
 }
@@ -223,7 +240,6 @@ function dateKeyToLabel(dateKey: string) {
   const [y, m, d] = dateKey.split("-").map(Number);
   if (!y || !m || !d) return dateKey;
   return new Date(y, m - 1, d).toLocaleDateString("ja-JP", {
-    timeZone: "Asia/Tokyo",
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -365,6 +381,14 @@ type ConversationType = {
   shop_id: number;
   customer_avatar_url?: string | null;
   shop_logo_url?: string | null;
+  /** バイヤーが問い合わせている商品（get_one_conversation の item_list など） */
+  inquired_items?: {
+    item_id?: string;
+    shop_id?: string;
+    name?: string;
+    image_url?: string;
+    item_url?: string;
+  }[];
 };
 
 type OrderInfo = {
@@ -651,6 +675,12 @@ export default function ChatDetailPage() {
         throw new Error("翻訳結果が空です");
       }
       setInputMessage(data.text);
+      const tl = data.target_lang?.toUpperCase().replace(/-.*/, "");
+      toast.success(
+        tl === "EN"
+          ? "英語に翻訳して入力欄に反映しました"
+          : "日本語に翻訳して入力欄に反映しました"
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "翻訳に失敗しました");
     } finally {
@@ -907,6 +937,63 @@ export default function ChatDetailPage() {
             </div>
           </div>
 
+          {/* 問い合わせ商品: conversation metadata から抽出した商品（最優先表示） */}
+          {conversation.inquired_items && conversation.inquired_items.length > 0 ? (
+            <div className="bg-card rounded-xl border-2 border-primary/30 shadow-card p-4 space-y-2">
+              <div className="flex items-center gap-2 pb-1 border-b border-border">
+                <ShoppingBag size={14} className="text-primary" />
+                <p className="text-foreground font-semibold text-sm text-primary">
+                  問い合わせ商品
+                </p>
+              </div>
+              <ul className="space-y-2">
+                {conversation.inquired_items.map((p, i) => (
+                  <li
+                    key={p.item_id ?? `ni-${i}-${p.name}`}
+                    className="rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-2 text-xs"
+                  >
+                    <div className="flex gap-2.5 items-start min-w-0">
+                      {p.image_url ? (
+                        <img
+                          src={p.image_url}
+                          alt={p.name ?? ""}
+                          className="w-14 h-14 rounded-md object-cover shrink-0 border border-border"
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => { e.currentTarget.style.display = "none"; }}
+                        />
+                      ) : null}
+                      <div className="min-w-0 flex-1">
+                        {p.name ? (
+                          <p className="text-foreground font-semibold leading-snug break-words">
+                            {p.name}
+                          </p>
+                        ) : null}
+                        {p.item_id ? (
+                          <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
+                            ID: {p.item_id}
+                          </p>
+                        ) : null}
+                        {p.item_url ? (
+                          <a
+                            href={p.item_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-primary font-medium mt-1.5 hover:underline"
+                          >
+                            商品ページを開く
+                            <ExternalLink size={11} className="shrink-0" />
+                          </a>
+                        ) : null}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {/* 関連商品（チャット）: item カードとして解析されたメッセージから */}
           {relatedProductsFromChat.length > 0 ? (
             <div className="bg-card rounded-xl border border-border shadow-card p-4 space-y-2">
               <div className="flex items-center gap-2 pb-1 border-b border-border">
