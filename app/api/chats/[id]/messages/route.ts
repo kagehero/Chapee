@@ -18,6 +18,7 @@ import { buildBuyerItemUrl, buildSellerOrderUrl } from "@/lib/shopee-order-utils
 import { fetchItemCatalogMapByIds } from "@/lib/shopee-product-utils";
 import { kindMapFromLog } from "@/lib/staff-message-kind";
 import { getStoredRawMessagesForConversation } from "@/lib/shopee-conversation-db-sync";
+import { reviewAutoReplySchedule } from "@/lib/auto-reply";
 
 /**
  * GET /api/chats/[id]/messages - Get messages for a conversation
@@ -107,6 +108,12 @@ export async function GET(
     }
     const rawList = msgResult.value;
 
+    // Non-blocking: re-evaluate auto-reply schedule from live message timestamps.
+    // Catches cases where the webhook was missed, delayed, or the timer drifted.
+    reviewAutoReplySchedule(rawList, conversation.shop_id, conversationId).catch(
+      (e) => console.warn("[messages] reviewAutoReplySchedule:", e)
+    );
+
     try {
       if (oneRes.status === "fulfilled" && oneRes.value) {
         const d = oneRes.value as Record<string, unknown>;
@@ -152,14 +159,8 @@ export async function GET(
       const tsRaw = msg.timestamp ?? msg.created_timestamp ?? msg.time;
       const ms = shopeeMessageTimeToMs(tsRaw);
       const sec = ms / 1000;
-      const dateKey = new Date(ms).toLocaleDateString("ja-JP", {
-        timeZone: "Asia/Tokyo",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }).replace(/\//g, "-");
+      const dateKey = new Date(ms).toISOString().slice(0, 10);
       const datetime = new Date(ms).toLocaleString("ja-JP", {
-        timeZone: "Asia/Tokyo",
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
@@ -215,7 +216,6 @@ export async function GET(
         order_url,
         item_url,
         time: new Date(ms).toLocaleTimeString("ja-JP", {
-          timeZone: "Asia/Tokyo",
           hour: "2-digit",
           minute: "2-digit",
         }),
