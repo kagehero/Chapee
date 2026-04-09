@@ -62,8 +62,13 @@ async function resolveTemplateContent(templateId: string): Promise<string | null
 }
 
 /**
- * 選択された注文ステータスに合致するバイヤー注文が1件でもあれば true。
- * `selectedJp` が空ならフィルタなし（true）。
+ * 注文ステータスフィルタ判定。
+ *
+ * - `selectedJp` が空 → フィルタなし（常に true）
+ * - バイヤーに注文が **ない**（未購入・購入前問い合わせ） → 常に true
+ *   フィルタは「注文のある買い手を絞り込む」機能であり、
+ *   まだ注文していない買い手を対象外にする意図はない。
+ * - 注文が 1 件以上あり、いずれかが `selectedJp` に該当 → true
  */
 export async function buyerMatchesOrderStatusFilter(
   accessToken: string,
@@ -112,7 +117,8 @@ export async function buyerMatchesOrderStatusFilter(
       }
     }
   }
-  if (sns.length === 0) return false;
+  // 注文が見つからない = 購入前の問い合わせ → ステータスフィルタは関係なし。自動返信対象とする。
+  if (sns.length === 0) return true;
 
   const detailRes = (await getOrderDetail(
     accessToken,
@@ -157,8 +163,7 @@ type WebhookMsg = {
   to_id: number;
   to_name: string;
   from_id: number;
-  /** バイヤーの最新メッセージ受信時刻（DBに記録済みの値）。未指定なら Date.now() を使用 */
-  last_buyer_message_time?: Date;
+  last_buyer_message_time?: number;
 };
 
 /**
@@ -200,9 +205,7 @@ export async function handleAutoReplyOnWebhookMessage(
   if (!ObjectId.isValid(cfg.template_id.trim())) return;
 
   const triggerHour = Math.max(1, Number(cfg.triggerHour) || 1);
-  // バイヤーの最新メッセージ時刻を基準に due を計算（Webhook遅延があっても正確）
-  const baseTime = data.last_buyer_message_time?.getTime() ?? Date.now();
-  const due = new Date(baseTime + triggerHour * 60 * 60 * 1000);
+  const due = new Date(Date.now() + triggerHour * 60 * 60 * 1000);
 
   await col.updateOne(
     { conversation_id: convId, shop_id },
@@ -216,7 +219,7 @@ export async function handleAutoReplyOnWebhookMessage(
   );
 
   console.log(
-    `[auto-reply] Scheduled for ${convId} shop=${shop_id} due=${due.toISOString()} (${triggerHour}h from ${data.last_buyer_message_time?.toISOString() ?? "now"})`
+    `[auto-reply] Scheduled for ${convId} shop=${shop_id} due=${due.toISOString()} (${triggerHour}h)`
   );
 }
 
