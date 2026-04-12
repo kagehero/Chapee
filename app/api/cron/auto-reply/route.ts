@@ -3,8 +3,15 @@ import { processDueAutoReplies } from "@/lib/auto-reply";
 
 /**
  * GET /api/cron/auto-reply
- * 期限到来の自動返信を送信。5〜15分ごとに cron から呼び出す想定。
- * Authorization: Bearer ${CRON_SECRET}
+ * 期限到来の自動返信を送信。
+ *
+ * Vercel Cron の制限:
+ * - Hobby: 1日1回まで（それ以上の頻度の式はデプロイ失敗）。vercel.json は日次に合わせている。
+ * - Pro/Enterprise: 分単位まで設定可能。短い間隔が必要なら vercel.json の schedule を
+ *   10 分間隔などの式に変更する。
+ *
+ * Hobby で数分おきに処理したい場合: 外部 cron（cron-job.org 等）から同 URL を
+ * Authorization: Bearer CRON_SECRET と同じ値で叩く。
  */
 export async function GET(request: NextRequest) {
   try {

@@ -19,7 +19,10 @@ import {
   previewFromConversationListItem,
   shopeeNanoTimestampToDate,
 } from "@/lib/shopee-conversation-utils";
-import { scheduleAutoReplyForUnread } from "@/lib/auto-reply";
+import {
+  processDueAutoReplies,
+  scheduleAutoReplyForUnread,
+} from "@/lib/auto-reply";
 
 type ShopeeConversation = {
   conversation_id: string;
@@ -247,9 +250,11 @@ export async function GET(request: NextRequest) {
         // 未読会話の自動返信スケジュールを last_message_time ベースで設定する。
         // 生メッセージが不要な簡易版（due_at = last_message_time + triggerHour）。
         if (unreadConvIds.length > 0) {
-          scheduleAutoReplyForUnread(shop.shop_id, unreadConvIds).catch((e) =>
-            console.warn("[Sync] scheduleAutoReplyForUnread:", e)
-          );
+          try {
+            await scheduleAutoReplyForUnread(shop.shop_id, unreadConvIds);
+          } catch (e) {
+            console.warn("[Sync] scheduleAutoReplyForUnread:", e);
+          }
         }
 
         try {
@@ -282,12 +287,31 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    /** Hobby では Vercel Cron が日次のみのため、同期直後に期限到来分を1バッチ処理する */
+    let autoReplyAfterSync: Awaited<
+      ReturnType<typeof processDueAutoReplies>
+    > | null = null;
+    try {
+      autoReplyAfterSync = await processDueAutoReplies();
+      if (
+        autoReplyAfterSync.processed > 0 ||
+        autoReplyAfterSync.sent > 0
+      ) {
+        console.log("[Sync] processDueAutoReplies:", autoReplyAfterSync);
+      }
+    } catch (e) {
+      console.warn("[Sync] processDueAutoReplies:", e);
+    }
+
     console.log("[Sync] Sync complete. Results:", results);
 
     return NextResponse.json({
       success: true,
       message: "Conversations synced",
       results,
+      ...(autoReplyAfterSync
+        ? { auto_reply_after_sync: autoReplyAfterSync }
+        : {}),
     });
   } catch (error) {
     console.error("[Sync] Sync error:", error);
