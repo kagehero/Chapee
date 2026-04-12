@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  Zap,
   Clock,
   Globe,
   ChevronRight,
@@ -18,7 +17,6 @@ import { toast } from "sonner";
 import { SHOPEE_MARKET_CODES } from "@/lib/shopee-markets";
 
 const COUNTRIES = [...SHOPEE_MARKET_CODES];
-const ORDER_STATUSES = ["注文受付", "発送準備中", "発送済み", "配達中", "配達完了", "キャンセル"];
 
 type ReplyTemplateRow = {
   id: string;
@@ -33,7 +31,6 @@ type ReplyTemplateRow = {
 type CountryConfig = {
   enabled: boolean;
   triggerHour: number;
-  statuses: string[];
   /** `reply_templates` の _id 文字列 */
   template_id: string;
   subAccounts?: { id: string; name: string; enabled: boolean }[];
@@ -64,7 +61,6 @@ function pickDefaultTemplateId(
 const defaultCountryConfig = (): CountryConfig => ({
   enabled: false,
   triggerHour: 3,
-  statuses: ["注文受付"],
   template_id: "",
   subAccounts: [],
 });
@@ -126,10 +122,6 @@ export default function AutoReplyPage() {
             typeof saved?.triggerHour === "number"
               ? saved.triggerHour
               : defaultCountryConfig().triggerHour,
-          statuses:
-            Array.isArray(saved?.statuses) && saved.statuses.length > 0
-              ? saved.statuses
-              : defaultCountryConfig().statuses,
           template_id: validId,
           subAccounts: Array.isArray(saved?.subAccounts)
             ? saved.subAccounts
@@ -170,14 +162,6 @@ export default function AutoReplyPage() {
       ...prev,
       [selectedCountry]: { ...prev[selectedCountry], [key]: value },
     }));
-  };
-
-  const toggleStatus = (status: string) => {
-    const curr = cfg.statuses;
-    const next = curr.includes(status)
-      ? curr.filter((s) => s !== status)
-      : [...curr, status];
-    updateConfig("statuses", next);
   };
 
   const toggleSubAccount = (subId: string) => {
@@ -364,7 +348,9 @@ export default function AutoReplyPage() {
               </div>
               <Label className="text-gray-900 font-semibold text-sm">自動返信発動時間</Label>
             </div>
-            <p className="text-gray-600 text-xs">未返信が指定時間を超えたときに自動返信します</p>
+            <p className="text-gray-600 text-xs">
+              バイヤー最終メッセージから指定時間が経過し、まだ手動返信がない場合にテンプレートを自動送信します（注文の有無・注文ステータスは問いません）。
+            </p>
 
             <div className="flex items-center gap-4">
               <input
@@ -385,39 +371,6 @@ export default function AutoReplyPage() {
               <span>1h</span>
               <span>6h</span>
               <span>11h</span>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-primary/10 rounded-xl flex items-center justify-center">
-                <Zap size={16} className="text-primary" />
-              </div>
-              <Label className="text-gray-900 font-semibold text-sm">注文ステータス連動</Label>
-            </div>
-            <p className="text-gray-600 text-xs">
-              注文のないバイヤー（購入前の問い合わせ）は常に対象です。注文があるバイヤーは選択したステータスの場合のみ返信します。
-            </p>
-
-            <div className="flex flex-wrap gap-2">
-              {ORDER_STATUSES.map((status) => {
-                const selected = cfg.statuses.includes(status);
-                return (
-                  <button
-                    key={status}
-                    type="button"
-                    onClick={() => toggleStatus(status)}
-                    className={cn(
-                      "px-4 py-2 rounded-xl text-xs font-semibold transition-all border-2",
-                      selected
-                        ? "bg-primary text-white border-primary shadow-md"
-                        : "bg-white text-gray-700 border-gray-200 hover:border-primary/50"
-                    )}
-                  >
-                    {status}
-                  </button>
-                );
-              })}
             </div>
           </div>
 

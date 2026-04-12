@@ -26,7 +26,7 @@ import { marketFilterChipsWithAll } from "@/lib/shopee-markets";
 const COUNTRIES = marketFilterChipsWithAll();
 
 /** ダッシュボード表示中の自動同期間隔（ミリ秒） */
-const DASHBOARD_AUTO_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+const DASHBOARD_AUTO_SYNC_INTERVAL_MS = 10 * 60 * 1000;
 
 type SyncResultDelta = {
   new_conversation_ids?: string[];
@@ -244,7 +244,7 @@ export default function DashboardPage() {
     };
   }, [fetchChats, runBackgroundSync]);
 
-  // 10分ごとに Shopee へ同期（このページを開いたままのとき。タブが非表示ならスキップ）
+  // 10分ごとに Shopee へ同期（ダッシュボードを開いている間のみ。タブが非表示ならスキップ）
   useEffect(() => {
     const id = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;

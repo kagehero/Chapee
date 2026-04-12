@@ -251,6 +251,30 @@ export function shopeeMessageTimeToMs(ts: unknown): number {
   return n * 1000;
 }
 
+/**
+ * スレッド内で時刻が最も新しいメッセージの送信者がバイヤーか（店舗の返信待ちの目安）
+ */
+export function isLatestMessageFromBuyer(
+  rawList: Record<string, unknown>[],
+  shopId: number,
+  buyerUserId: number
+): boolean {
+  if (!rawList.length) return false;
+  let best = rawList[0];
+  let bestMs = shopeeMessageTimeToMs(
+    best.timestamp ?? best.created_timestamp ?? best.time
+  );
+  for (let i = 1; i < rawList.length; i++) {
+    const m = rawList[i];
+    const ms = shopeeMessageTimeToMs(m.timestamp ?? m.created_timestamp ?? m.time);
+    if (ms >= bestMs) {
+      bestMs = ms;
+      best = m;
+    }
+  }
+  return inferChatMessageSender(best, shopId, buyerUserId) !== "staff";
+}
+
 /** UI 用（商品カード・注文・スタンプなど） */
 export type ShopeeMessageCardKind = "text" | "item" | "order" | "sticker" | "image";
 

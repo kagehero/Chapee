@@ -19,6 +19,10 @@ import {
   previewFromConversationListItem,
   shopeeNanoTimestampToDate,
 } from "@/lib/shopee-conversation-utils";
+import {
+  processDueAutoReplies,
+  scheduleAutoReplyForUnread,
+} from "@/lib/auto-reply";
 
 type ShopeeConversation = {
   conversation_id: string;
@@ -185,6 +189,8 @@ export async function GET(request: NextRequest) {
         }
 
         let synced = 0;
+        // unread_count > 0 の会話は自動返信スケジュールの対象
+        const unreadConvIds: string[] = [];
 
         for (const conv of allConversations) {
           const lastAt = shopeeNanoTimestampToDate(conv.last_message_timestamp);
@@ -218,6 +224,9 @@ export async function GET(request: NextRequest) {
                 unread_count: conv.unread_count,
                 pinned: conv.pinned,
                 status: conv.unread_count > 0 ? "active" : "resolved",
+                ...(conv.unread_count > 0
+                  ? { handling_status: "unreplied" as const }
+                  : {}),
                 updated_at: new Date(),
               },
               $setOnInsert: {
@@ -229,9 +238,24 @@ export async function GET(request: NextRequest) {
             { upsert: true }
           );
           synced++;
+
+          if (conv.unread_count > 0) {
+            unreadConvIds.push(String(conv.conversation_id));
+          }
         }
 
         console.log(`[Sync] Synced ${synced} conversations to database`);
+
+        // Webhook が届かなかった場合のフォールバック:
+        // 未読会話の自動返信スケジュールを last_message_time ベースで設定する。
+        // 生メッセージが不要な簡易版（due_at = last_message_time + triggerHour）。
+        if (unreadConvIds.length > 0) {
+          try {
+            await scheduleAutoReplyForUnread(shop.shop_id, unreadConvIds);
+          } catch (e) {
+            console.warn("[Sync] scheduleAutoReplyForUnread:", e);
+          }
+        }
 
         try {
           await saveSyncSnapshot(
@@ -263,12 +287,31 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    /** Hobby では Vercel Cron が日次のみのため、同期直後に期限到来分を1バッチ処理する */
+    let autoReplyAfterSync: Awaited<
+      ReturnType<typeof processDueAutoReplies>
+    > | null = null;
+    try {
+      autoReplyAfterSync = await processDueAutoReplies();
+      if (
+        autoReplyAfterSync.processed > 0 ||
+        autoReplyAfterSync.sent > 0
+      ) {
+        console.log("[Sync] processDueAutoReplies:", autoReplyAfterSync);
+      }
+    } catch (e) {
+      console.warn("[Sync] processDueAutoReplies:", e);
+    }
+
     console.log("[Sync] Sync complete. Results:", results);
 
     return NextResponse.json({
       success: true,
       message: "Conversations synced",
       results,
+      ...(autoReplyAfterSync
+        ? { auto_reply_after_sync: autoReplyAfterSync }
+        : {}),
     });
   } catch (error) {
     console.error("[Sync] Sync error:", error);

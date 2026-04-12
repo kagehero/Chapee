@@ -1,11 +1,6 @@
 import { ObjectId } from "mongodb";
 import { getCollection } from "@/lib/mongodb";
-import {
-  sendMessage,
-  getOrderList,
-  getOrderDetail,
-  SHOPEE_ORDER_LIST_MAX_RANGE_SEC,
-} from "@/lib/shopee-api";
+import { sendMessage } from "@/lib/shopee-api";
 import { getShopCountry, getValidToken } from "@/lib/shopee-token";
 import {
   extractMessageIdFromSendResponse,
@@ -17,29 +12,9 @@ import { shopeeMessageTimeToMs } from "@/lib/shopee-conversation-utils";
 type AutoReplyCountryCfg = {
   enabled: boolean;
   triggerHour: number;
-  statuses: string[];
   template_id: string;
   subAccounts?: { id: string; name: string; enabled: boolean }[];
 };
-
-/** UI の日本語ラベル → Shopee `order_status` 文字列（複数候補） */
-const JP_ORDER_STATUS_TO_API: Record<string, readonly string[]> = {
-  注文受付: ["UNPAID", "READY_TO_SHIP", "PROCESSED"],
-  発送準備中: ["READY_TO_SHIP", "PROCESSED"],
-  発送済み: ["SHIPPED"],
-  配達中: ["SHIPPED", "TO_CONFIRM_RECEIVE"],
-  配達完了: ["COMPLETED"],
-  キャンセル: ["CANCELLED", "IN_CANCEL", "IN_CANCELLED"],
-};
-
-function allowedApiStatusesFromJp(selected: string[]): Set<string> {
-  const s = new Set<string>();
-  for (const jp of selected) {
-    const codes = JP_ORDER_STATUS_TO_API[jp];
-    if (codes) codes.forEach((c) => s.add(c));
-  }
-  return s;
-}
 
 async function getSingletonAutoReplyCountries(): Promise<
   Record<string, AutoReplyCountryCfg>
@@ -63,81 +38,73 @@ async function resolveTemplateContent(templateId: string): Promise<string | null
 }
 
 /**
- * 注文ステータスフィルタ判定。
- *
- * - `selectedJp` が空 → フィルタなし（常に true）
- * - バイヤーに注文が **ない**（未購入・購入前問い合わせ） → 常に true
- *   フィルタは「注文のある買い手を絞り込む」機能であり、
- *   まだ注文していない買い手を対象外にする意図はない。
- * - 注文が 1 件以上あり、いずれかが `selectedJp` に該当 → true
+ * /api/shopee/sync のフォールバック用。
+ * 生メッセージが取得できない状況で、unread_count > 0 の会話に対して
+ * last_message_time + triggerHour を due_at としてセットする。
+ * - 既に auto_reply_pending=true かつ due_at が設定済みの場合はスキップ（上書きしない）。
+ * - last_auto_reply_at がバイヤー最終メッセージより後の場合もスキップ。
  */
-export async function buyerMatchesOrderStatusFilter(
-  accessToken: string,
+export async function scheduleAutoReplyForUnread(
   shopId: number,
-  buyerUserId: number,
-  selectedJp: string[]
-): Promise<boolean> {
-  if (!selectedJp.length) return true;
+  conversationIds: string[]
+): Promise<void> {
+  if (!conversationIds.length) return;
 
-  const allowed = allowedApiStatusesFromJp(selectedJp);
-  if (allowed.size === 0) return true;
+  const country = (await getShopCountry(shopId)) ?? "SG";
+  const countryKey = String(country).toUpperCase();
+  const countries = await getSingletonAutoReplyCountries();
+  const cfg = countries[countryKey];
 
-  const country = (await getShopCountry(shopId)) ?? undefined;
-  const countryOpt = country ? { country } : undefined;
-
-  const now = Math.floor(Date.now() / 1000);
-  const lookbackSec = 90 * 24 * 60 * 60;
-  const windowCount = Math.ceil(lookbackSec / SHOPEE_ORDER_LIST_MAX_RANGE_SEC);
-  const sns: string[] = [];
-
-  for (let w = 0; w < windowCount; w++) {
-    const time_to = now - w * SHOPEE_ORDER_LIST_MAX_RANGE_SEC;
-    const time_from = time_to - SHOPEE_ORDER_LIST_MAX_RANGE_SEC;
-    if (time_from < 0) break;
-
-    const listRes = (await getOrderList(
-      accessToken,
-      shopId,
-      {
-        time_range_field: "create_time",
-        time_from,
-        time_to,
-        page_size: 100,
-      },
-      countryOpt
-    )) as Record<string, unknown>;
-    const listNested = listRes.response as Record<string, unknown> | undefined;
-    const orders = (listNested?.order_list ??
-      listRes.order_list ??
-      []) as Record<string, unknown>[];
-
-    for (const row of orders) {
-      const bid = Number(row.buyer_user_id ?? row.buyer_userid ?? 0);
-      if (bid === buyerUserId && row.order_sn) {
-        sns.push(String(row.order_sn));
-      }
-    }
+  if (!cfg?.enabled || !cfg.template_id?.trim() || !ObjectId.isValid(cfg.template_id.trim())) {
+    return;
   }
-  // 注文が見つからない = 購入前の問い合わせ → ステータスフィルタは関係なし。自動返信対象とする。
-  if (sns.length === 0) return true;
 
-  const detailRes = (await getOrderDetail(
-    accessToken,
-    shopId,
-    sns.slice(0, 50),
-    ["order_status"],
-    countryOpt
-  )) as Record<string, unknown>;
-  const detailNested = detailRes.response as Record<string, unknown> | undefined;
-  const detailList = (detailNested?.order_list ??
-    detailRes.order_list ??
-    []) as Record<string, unknown>[];
+  const triggerHour = Math.max(1, Number(cfg.triggerHour) || 1);
+  const triggerMs = triggerHour * 60 * 60 * 1000;
 
-  for (const row of detailList) {
-    const st = String(row.order_status ?? "").toUpperCase();
-    if (allowed.has(st)) return true;
+  const col = await getCollection<{
+    conversation_id: string;
+    shop_id: number;
+    chat_type?: string;
+    last_message_time?: Date;
+    auto_reply_pending?: boolean;
+    auto_reply_due_at?: Date | null;
+    last_auto_reply_at?: Date | null;
+  }>("shopee_conversations");
+
+  const docs = await col
+    .find({
+      conversation_id: { $in: conversationIds },
+      shop_id: shopId,
+    })
+    .toArray();
+
+  const now = Date.now();
+  for (const doc of docs) {
+    if (doc.chat_type === "notification") continue;
+    // 既にスケジュール済みならスキップ
+    if (doc.auto_reply_pending && doc.auto_reply_due_at) continue;
+
+    const lastMsgMs = doc.last_message_time instanceof Date
+      ? doc.last_message_time.getTime()
+      : 0;
+    if (lastMsgMs === 0) continue;
+
+    // 自動返信済みならスキップ
+    const lastAutoAt = doc.last_auto_reply_at;
+    if (lastAutoAt instanceof Date && lastAutoAt.getTime() >= lastMsgMs) continue;
+
+    const dueMs = lastMsgMs + triggerMs;
+    const due = new Date(dueMs > now ? dueMs : now);
+
+    await col.updateOne(
+      { conversation_id: doc.conversation_id, shop_id: shopId },
+      { $set: { auto_reply_pending: true, auto_reply_due_at: due, updated_at: new Date() } }
+    );
+    console.log(
+      `[auto-reply] sync-fallback: scheduled conv=${doc.conversation_id} shop=${shopId} due=${due.toISOString()}`
+    );
   }
-  return false;
 }
 
 /** スタッフ送信後・手動送信後に保留中の自動返信をキャンセル */
@@ -427,21 +394,6 @@ export async function processDueAutoReplies(): Promise<ProcessAutoReplyResult> {
         continue;
       }
 
-      const statuses = Array.isArray(cfg.statuses) ? cfg.statuses : [];
-      const ok = await buyerMatchesOrderStatusFilter(
-        accessToken,
-        shopId,
-        buyerId,
-        statuses
-      );
-      if (!ok) {
-        result.skipped++;
-        console.log(
-          `[auto-reply] Skip ${convId}: no order matching statuses for buyer ${buyerId}`
-        );
-        continue;
-      }
-
       const sendRes = (await sendMessage(
         accessToken,
         shopId,
@@ -462,6 +414,7 @@ export async function processDueAutoReplies(): Promise<ProcessAutoReplyResult> {
             last_message_time: new Date(),
             unread_count: 0,
             last_auto_reply_at: new Date(),
+            handling_status: "auto_replied_pending",
             updated_at: new Date(),
           },
         }
