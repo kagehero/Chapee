@@ -4,46 +4,85 @@ import { useCallback, useEffect, useRef } from "react";
 import { getNotificationSoundsEnabled } from "@/lib/notification-sound-settings";
 
 /**
- * Notification sounds for:
- * - New incoming message (ピロリン)
- * - Order related events (シャーキーン)
- *
- * Respects user preference from Settings (notification sound ON/OFF).
- * Plays when new customer messages arrive (e.g. after polling / real-time refresh).
- * Later, Shopee webhook or realtime events can call the same handlers.
+ * 通知音（Web Audio API のソフトなサイン波。甲高い WAV を廃止）
+ * - メッセージ: やや低めの短いチャイム
+ * - 注文系: 別の低めの音程で区別
  */
+function getAudioContext(): AudioContext | null {
+  if (typeof window === "undefined") return null;
+  const Ctx =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext;
+  if (!Ctx) return null;
+  return new Ctx();
+}
+
+function playTone(
+  ctx: AudioContext,
+  frequencyHz: number,
+  durationSec: number,
+  peakGain: number
+): void {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(frequencyHz, ctx.currentTime);
+
+  const t0 = ctx.currentTime;
+  const attack = 0.02;
+  const release = Math.max(0.04, durationSec * 0.35);
+  gain.gain.setValueAtTime(0, t0);
+  gain.gain.linearRampToValueAtTime(peakGain, t0 + attack);
+  gain.gain.exponentialRampToValueAtTime(
+    0.0008,
+    t0 + durationSec - release
+  );
+  gain.gain.linearRampToValueAtTime(0, t0 + durationSec);
+
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(t0);
+  osc.stop(t0 + durationSec + 0.02);
+}
+
 export function useNotificationSounds() {
-  const messageAudioRef = useRef<HTMLAudioElement | null>(null);
-  const orderAudioRef = useRef<HTMLAudioElement | null>(null);
+  const ctxRef = useRef<AudioContext | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-
-    messageAudioRef.current = new Audio("/sounds/message.wav");
-    orderAudioRef.current = new Audio("/sounds/order.wav");
+    ctxRef.current = getAudioContext();
+    return () => {
+      void ctxRef.current?.close();
+      ctxRef.current = null;
+    };
   }, []);
 
   const playMessageSound = useCallback(() => {
     if (!getNotificationSoundsEnabled()) return;
-    const audio = messageAudioRef.current;
-    if (!audio) return;
+    const ctx = ctxRef.current ?? getAudioContext();
+    if (!ctx) return;
+    ctxRef.current = ctx;
     try {
-      audio.currentTime = 0;
-      void audio.play();
+      void ctx.resume();
+      // 約 F4 — 落ち着いた短いチャイム
+      playTone(ctx, 349.23, 0.14, 0.11);
     } catch {
-      // ignore play errors (e.g. autoplay restrictions)
+      /* ignore */
     }
   }, []);
 
   const playOrderSound = useCallback(() => {
     if (!getNotificationSoundsEnabled()) return;
-    const audio = orderAudioRef.current;
-    if (!audio) return;
+    const ctx = ctxRef.current ?? getAudioContext();
+    if (!ctx) return;
+    ctxRef.current = ctx;
     try {
-      audio.currentTime = 0;
-      void audio.play();
+      void ctx.resume();
+      // 約 C4 — メッセージより低く、短く
+      playTone(ctx, 261.63, 0.16, 0.1);
     } catch {
-      // ignore play errors (e.g. autoplay restrictions)
+      /* ignore */
     }
   }, []);
 
@@ -52,4 +91,3 @@ export function useNotificationSounds() {
     playOrderSound,
   };
 }
-

@@ -245,7 +245,7 @@ export async function getShopNotification(
 const ITEM_BASE_INFO_MAX_IDS = 50;
 
 /**
- * 商品マスタ（チャットの item_id から商品名・メイン画像を補完する）
+ * 
  *
  * 公式は **GET**（クエリに `item_id_list`）。POST は環境によって 404 / 非対応になることがある。
  * @see https://open.shopee.com/documents/v2/v2.product.get_item_base_info?module=89&type=1

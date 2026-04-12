@@ -32,6 +32,11 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useNotificationSounds } from "@/lib/useNotificationSounds";
+import {
+  type HandlingStatus,
+  HANDLING_STATUS_LABELS,
+  HANDLING_STATUS_VALUES,
+} from "@/lib/handling-status";
 
 type AttachedFile = {
   id: string;
@@ -381,6 +386,7 @@ type ConversationType = {
   shop_id: number;
   customer_avatar_url?: string | null;
   shop_logo_url?: string | null;
+  handling_status?: HandlingStatus;
   /** バイヤーが問い合わせている商品（get_one_conversation の item_list など） */
   inquired_items?: {
     item_id?: string;
@@ -422,7 +428,7 @@ export default function ChatDetailPage() {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { playMessageSound, playOrderSound } = useNotificationSounds();
+  const { playMessageSound } = useNotificationSounds();
   const isFirstMessagesLoadRef = useRef(true);
   const lastMessageCountRef = useRef(0);
   /** テンプレ選択直後の ID（送信時に本文一致なら「テンプレ」扱い） */
@@ -431,6 +437,7 @@ export default function ChatDetailPage() {
   const sendLockRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
+  const [handlingStatusSaving, setHandlingStatusSaving] = useState(false);
 
   const loadReplyTemplates = useCallback(async () => {
     setTemplatesLoading(true);
@@ -541,6 +548,26 @@ export default function ChatDetailPage() {
 
     lastMessageCountRef.current = messages.length;
   }, [messages, playMessageSound]);
+
+  const patchHandlingStatus = async (next: HandlingStatus) => {
+    if (!id) return;
+    setHandlingStatusSaving(true);
+    try {
+      const res = await fetch(`/api/chats/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handling_status: next }),
+      });
+      if (!res.ok) throw new Error("patch failed");
+      setConversation((prev) =>
+        prev ? { ...prev, handling_status: next } : prev
+      );
+    } catch {
+      toast.error("対応ステータスの更新に失敗しました");
+    } finally {
+      setHandlingStatusSaving(false);
+    }
+  };
 
   const loadMessages = async () => {
     try {
@@ -1069,22 +1096,30 @@ export default function ChatDetailPage() {
               {conversation?.customer_name || "読み込み中..."} とのチャット
             </p>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Notification sound test buttons (dev only) */}
-            <button
-              type="button"
-              onClick={playMessageSound}
-              className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-full text-[11px] bg-primary-foreground/15 text-primary-foreground hover:bg-primary-foreground/25 transition-colors"
+          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+            <label className="sr-only" htmlFor="handling-status-select">
+              対応ステータス
+            </label>
+            <select
+              id="handling-status-select"
+              className="max-w-[min(100vw-8rem,14rem)] text-[11px] sm:text-xs rounded-lg border border-primary-foreground/30 bg-white/95 text-foreground px-2 py-1.5 shadow-sm"
+              disabled={!conversation || handlingStatusSaving}
+              value={conversation?.handling_status ?? "completed"}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (
+                  HANDLING_STATUS_VALUES.includes(v as HandlingStatus)
+                ) {
+                  void patchHandlingStatus(v as HandlingStatus);
+                }
+              }}
             >
-              メッセージ音テスト
-            </button>
-            <button
-              type="button"
-              onClick={playOrderSound}
-              className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-full text-[11px] bg-primary-foreground/15 text-primary-foreground hover:bg-primary-foreground/25 transition-colors"
-            >
-              売上音テスト
-            </button>
+              {HANDLING_STATUS_VALUES.map((h) => (
+                <option key={h} value={h}>
+                  {HANDLING_STATUS_LABELS[h]}
+                </option>
+              ))}
+            </select>
             <span className="text-primary-foreground/80 text-xs bg-primary-foreground/20 px-2 py-0.5 rounded-full">
               {conversation?.country || "..."}
             </span>

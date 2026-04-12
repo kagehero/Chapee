@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   Search, Users as UsersIcon,
   ChevronRight, User,
-  CheckCircle, XCircle, AlertCircle, Loader2, RefreshCw,
+  AlertCircle, Loader2, RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -19,10 +19,16 @@ import {
 import { matchChatSearchQuery } from "@/lib/chat-search";
 
 import { marketFilterChipsWithAll } from "@/lib/shopee-markets";
+import {
+  type HandlingStatus,
+  HANDLING_STATUS_BADGE_STYLE,
+  HANDLING_STATUS_LABELS,
+  HANDLING_STATUS_ROW_STYLE,
+  HANDLING_STATUS_VALUES,
+  isHandlingStatus,
+} from "@/lib/handling-status";
 
 const COUNTRIES = marketFilterChipsWithAll();
-
-type ChatStatus = "open" | "replied" | "closed";
 
 type ChatRow = {
   id: string;
@@ -35,15 +41,9 @@ type ChatRow = {
   elapsed: number;
   staff: string;
   unread: number;
-  uiStatus: ChatStatus;
+  handling_status: HandlingStatus;
   /** Chapee 経由で記録された直近の店舗送信 */
   last_staff_send_kind?: LastStaffSendKind | null;
-};
-
-const statusConfig = {
-  open: { label: "未対応", color: "text-red-600 bg-red-50 border-red-200", icon: AlertCircle },
-  replied: { label: "返信済", color: "text-blue-600 bg-blue-50 border-blue-200", icon: CheckCircle },
-  closed: { label: "完了", color: "text-gray-600 bg-gray-50 border-gray-200", icon: XCircle },
 };
 
 export default function ChatsPage() {
@@ -53,7 +53,7 @@ export default function ChatsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState("全て");
-  const [selectedStatus, setSelectedStatus] = useState<ChatStatus | "all">("all");
+  const [selectedHandling, setSelectedHandling] = useState<HandlingStatus | "all">("all");
   const [search, setSearch] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [selectedChats, setSelectedChats] = useState<string[]>([]);
@@ -65,7 +65,14 @@ export default function ChatsPage() {
     if (c && COUNTRIES.includes(c)) setSelectedCountry(c);
     const u = searchParams.get("unread_only") ?? searchParams.get("unread");
     if (u === "1" || u === "true") setUnreadOnly(true);
+    const h = searchParams.get("handling");
+    if (h === "all" || h === "") setSelectedHandling("all");
+    else if (h && isHandlingStatus(h)) setSelectedHandling(h);
   }, [searchParams]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedHandling, selectedCountry, unreadOnly, search]);
 
   const loadChats = useCallback(async () => {
     const res = await fetch(
@@ -83,7 +90,7 @@ export default function ChatsPage() {
         elapsed: number;
         staff?: string;
         unread: number;
-        uiStatus?: ChatStatus;
+        handling_status?: HandlingStatus;
         product?: string;
         date?: string;
         last_staff_send_kind?: LastStaffSendKind | null;
@@ -98,7 +105,9 @@ export default function ChatsPage() {
         elapsed: c.elapsed,
         staff: c.staff ?? "未割当",
         unread: c.unread,
-        uiStatus: (c.uiStatus as ChatStatus) || "replied",
+        handling_status: isHandlingStatus(c.handling_status)
+          ? c.handling_status
+          : "completed",
         last_staff_send_kind: c.last_staff_send_kind ?? null,
       })
     );
@@ -137,7 +146,6 @@ export default function ChatsPage() {
         });
       }
       await loadChats();
-      toast.success("同期しました");
     } catch (e) {
       toast.error("同期に失敗しました");
     } finally {
@@ -147,10 +155,11 @@ export default function ChatsPage() {
 
   const filtered = chats.filter((c) => {
     const matchCountry = selectedCountry === "全て" || c.country === selectedCountry;
-    const matchStatus = selectedStatus === "all" || c.uiStatus === selectedStatus;
+    const matchHandling =
+      selectedHandling === "all" || c.handling_status === selectedHandling;
     const matchSearch = matchChatSearchQuery(search, c);
     const matchUnread = !unreadOnly || c.unread > 0;
-    return matchCountry && matchStatus && matchSearch && matchUnread;
+    return matchCountry && matchHandling && matchSearch && matchUnread;
   });
 
   const totalUnreadMessages = chats.reduce((s, c) => s + (c.unread > 0 ? c.unread : 0), 0);
@@ -187,17 +196,33 @@ export default function ChatsPage() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h2 className="text-gray-900 font-bold text-lg">チャット管理</h2>
-          <p className="text-gray-500 text-sm mt-0.5">
-            未読は一覧の先頭に表示されます。店舗側の最終送信が Chapee 経由の場合のみ「手動／テンプレ／自動返信」を表示します。
-          </p>
-          {unreadConversationCount > 0 && (
-            <p className="text-sm font-semibold text-amber-800 mt-2 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-100 border border-amber-200 px-2.5 py-1">
-                <AlertCircle size={14} />
-                未読会話 {unreadConversationCount} 件 / 未読メッセージ合計 {totalUnreadMessages} 通
-              </span>
-            </p>
-          )}
+          <div className="mt-2 flex flex-col gap-2">
+            {unreadConversationCount > 0 && (
+              <p className="text-sm font-semibold text-amber-900 flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-100 border border-amber-200 px-2.5 py-1 tabular-nums">
+                  <AlertCircle size={14} />
+                  未読会話 {unreadConversationCount} 件 / 未読 {totalUnreadMessages} 通
+                </span>
+              </p>
+            )}
+            <div className="flex flex-wrap gap-1.5 items-center">
+              <span className="text-xs text-gray-500 font-medium">対応状況:</span>
+              {HANDLING_STATUS_VALUES.map((h) => {
+                const count = chats.filter((c) => c.handling_status === h).length;
+                return (
+                  <span
+                    key={h}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium tabular-nums",
+                      HANDLING_STATUS_BADGE_STYLE[h]
+                    )}
+                  >
+                    {HANDLING_STATUS_LABELS[h]} {count}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -293,39 +318,39 @@ export default function ChatsPage() {
           </div>
         </div>
 
-        {/* Status Filter */}
+        {/* 対応ステータス（未返信 / 自動返信済み要対応 / 対応中 / 完了） */}
         <div>
-          <label className="text-gray-700 text-sm font-semibold mb-2 block">ステータス</label>
+          <label className="text-gray-700 text-sm font-semibold mb-2 block">
+            対応ステータス
+          </label>
           <div className="flex gap-2 flex-wrap">
             <button
-              onClick={() => setSelectedStatus("all")}
+              type="button"
+              onClick={() => setSelectedHandling("all")}
               className={cn(
                 "px-3 py-1.5 rounded-lg text-sm font-medium transition-all border",
-                selectedStatus === "all"
+                selectedHandling === "all"
                   ? "bg-primary text-white border-primary"
                   : "bg-white text-gray-700 border-gray-200 hover:border-primary/50"
               )}
             >
-              全て
+              すべて
             </button>
-            {(Object.entries(statusConfig) as [ChatStatus, typeof statusConfig[ChatStatus]][]).map(([status, config]) => {
-              const Icon = config.icon;
-              return (
-                <button
-                  key={status}
-                  onClick={() => setSelectedStatus(status)}
-                  className={cn(
-                    "px-3 py-1.5 rounded-lg text-sm font-medium transition-all border flex items-center gap-1.5",
-                    selectedStatus === status
-                      ? "bg-primary text-white border-primary"
-                      : "bg-white text-gray-700 border-gray-200 hover:border-primary/50"
-                  )}
-                >
-                  <Icon size={14} />
-                  {config.label}
-                </button>
-              );
-            })}
+            {HANDLING_STATUS_VALUES.map((h) => (
+              <button
+                key={h}
+                type="button"
+                onClick={() => setSelectedHandling(h)}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-sm font-medium transition-all border max-w-[min(100%,220px)] text-left leading-snug",
+                  selectedHandling === h
+                    ? "bg-primary text-white border-primary"
+                    : "bg-white text-gray-700 border-gray-200 hover:border-primary/50"
+                )}
+              >
+                {HANDLING_STATUS_LABELS[h]}
+              </button>
+            ))}
           </div>
         </div>
       </div>
@@ -362,7 +387,7 @@ export default function ChatsPage() {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">最終メッセージ</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">日時</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">経過時間</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">ステータス</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">対応ステータス</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">担当者</th>
                 <th className="px-4 py-3"></th>
               </tr>
@@ -377,26 +402,23 @@ export default function ChatsPage() {
                 </tr>
               ) : (
               paginatedChats.map(chat => {
-                const statusInfo = statusConfig[chat.uiStatus];
-                const StatusIcon = statusInfo.icon;
-                
-                // 経過時間に応じた背景色を決定（未対応のみ）
-                let rowBgColor = "";
-                if (chat.uiStatus === "open" && chat.unread > 0) {
-                  if (chat.elapsed >= 11) {
-                    rowBgColor = "bg-red-50/50"; // 11時間以上: 赤
-                  } else if (chat.elapsed >= 8) {
-                    rowBgColor = "bg-orange-50/50"; // 8時間以上: オレンジ
-                  }
-                }
-                
+                const hs = chat.handling_status;
+                const rowStyle = HANDLING_STATUS_ROW_STYLE[hs] ?? "";
+                const urgentUnread =
+                  hs === "unreplied" &&
+                  chat.unread > 0 &&
+                  chat.elapsed >= 8;
                 return (
                   <tr 
                     key={chat.id}
                     className={cn(
                       "hover:bg-gray-50 cursor-pointer transition-colors",
-                      rowBgColor,
-                      chat.unread > 0 && "border-l-4 border-l-red-500 bg-red-50/30"
+                      rowStyle,
+                      urgentUnread && chat.elapsed >= 11 && "bg-red-100/40",
+                      urgentUnread &&
+                        chat.elapsed < 11 &&
+                        chat.elapsed >= 8 &&
+                        "bg-orange-50/50"
                     )}
                     onClick={() => router.push(`/chats/${chat.id}`)}
                   >
@@ -447,9 +469,13 @@ export default function ChatsPage() {
                       <span className="text-gray-900 font-medium text-sm">{chat.elapsed}h</span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className={cn("inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border", statusInfo.color)}>
-                        <StatusIcon size={12} />
-                        {statusInfo.label}
+                      <div
+                        className={cn(
+                          "inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium border leading-tight max-w-[200px]",
+                          HANDLING_STATUS_BADGE_STYLE[hs]
+                        )}
+                      >
+                        {HANDLING_STATUS_LABELS[hs]}
                       </div>
                     </td>
                     <td className="px-4 py-3">

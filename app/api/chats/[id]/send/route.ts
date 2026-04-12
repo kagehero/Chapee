@@ -116,6 +116,7 @@ export async function POST(
           last_message: lastPreview,
           last_message_time: new Date(),
           unread_count: 0,
+          handling_status: "in_progress",
           updated_at: new Date(),
         },
       }

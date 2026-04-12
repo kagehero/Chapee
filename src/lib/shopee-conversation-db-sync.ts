@@ -8,9 +8,14 @@ import { getValidToken } from "@/lib/shopee-token";
 import {
   displayFromShopeeChatMessage,
   extractBuyerAvatarFromShopee,
+  isLatestMessageFromBuyer,
   shopeeMessageTimeToMs,
 } from "@/lib/shopee-conversation-utils";
 import { reviewAutoReplySchedule } from "@/lib/auto-reply";
+import {
+  type HandlingStatus,
+  resolveHandlingStatus,
+} from "@/lib/handling-status";
 
 /** Webhook 同期後のメッセージ行を保持（GET /messages が DB から組み立て可能に） */
 export const SHOPEE_CHAT_MESSAGES_COLLECTION = "shopee_chat_messages";
@@ -183,7 +188,14 @@ export async function syncWebhookConversationFull(
       unread_count: number;
       status: string;
       customer_avatar_url?: string;
+      handling_status?: string;
+      staff_message_kind_log?: { id: string; kind: string }[];
     }>("shopee_conversations");
+
+    const existing = await convCol.findOne({
+      conversation_id: String(conversationId),
+      shop_id: shopId,
+    });
 
     const setConv: Record<string, unknown> = {
       status: "active",
@@ -197,6 +209,34 @@ export async function syncWebhookConversationFull(
     if (buyerName) setConv.customer_name = buyerName;
     if (unreadCount !== undefined) setConv.unread_count = unreadCount;
     if (avatar) setConv.customer_avatar_url = avatar;
+
+    const buyerUid =
+      Number.isFinite(buyerId) && buyerId > 0
+        ? buyerId
+        : Number(existing?.customer_id ?? 0);
+    const buyerLast =
+      buyerUid > 0
+        ? isLatestMessageFromBuyer(
+            rawList as Record<string, unknown>[],
+            shopId,
+            buyerUid
+          )
+        : false;
+
+    const resolvedHandling = resolveHandlingStatus(
+      {
+        handling_status: existing?.handling_status as HandlingStatus | undefined,
+        unread_count:
+          unreadCount !== undefined
+            ? unreadCount
+            : Math.max(0, Number(existing?.unread_count ?? 0)),
+        staff_message_kind_log: existing?.staff_message_kind_log,
+        last_message_time: lastTime,
+        last_buyer_message_time: lastBuyerTime,
+      },
+      { buyer_last_message_is_latest: buyerLast }
+    );
+    setConv.handling_status = resolvedHandling;
 
     await convCol.updateOne(
       { conversation_id: String(conversationId), shop_id: shopId },

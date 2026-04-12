@@ -9,7 +9,6 @@ const SINGLETON_ID = "singleton";
 export type AutoReplyCountryStored = {
   enabled: boolean;
   triggerHour: number;
-  statuses: string[];
   /** `reply_templates` のドキュメント ID */
   template_id: string;
   subAccounts?: { id: string; name: string; enabled: boolean }[];

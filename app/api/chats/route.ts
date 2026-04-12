@@ -2,6 +2,11 @@ import type { Filter } from "mongodb";
 import { NextRequest, NextResponse } from "next/server";
 import { getCollection } from "@/lib/mongodb";
 import { lastStaffKindFromLog } from "@/lib/staff-message-kind";
+import {
+  type HandlingStatus,
+  isHandlingStatus,
+  resolveHandlingStatus,
+} from "@/lib/handling-status";
 
 type ChatType = "buyer" | "notification" | "affiliate";
 
@@ -16,6 +21,7 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get("type");
     const excludeChatTypesRaw = searchParams.get("exclude_chat_types");
     const searchQuery = searchParams.get("search")?.trim() ?? "";
+    const handlingParam = searchParams.get("handling")?.trim() ?? "";
     const unreadOnly =
       searchParams.get("unread_only") === "1" ||
       searchParams.get("unread_only") === "true";
@@ -41,6 +47,8 @@ export async function GET(request: NextRequest) {
       created_at: Date;
       updated_at: Date;
       staff_message_kind_log?: { id: string; kind: string }[];
+      handling_status?: HandlingStatus;
+      last_auto_reply_at?: Date | null;
     }>("shopee_conversations");
 
     type ConvDoc = {
@@ -61,6 +69,8 @@ export async function GET(request: NextRequest) {
       created_at: Date;
       updated_at: Date;
       staff_message_kind_log?: { id: string; kind: string }[];
+      handling_status?: HandlingStatus;
+      last_auto_reply_at?: Date | null;
     };
 
     const filterDoc: Filter<ConvDoc> = {};
@@ -109,14 +119,15 @@ export async function GET(request: NextRequest) {
       const elapsedBase = conv.last_buyer_message_time ?? conv.last_message_time;
       const elapsed = (now - elapsedBase.getTime()) / (1000 * 60 * 60);
 
-      const uiStatus =
-        conv.status === "archived"
-          ? "closed"
-          : conv.unread_count > 0
-            ? "open"
-            : "replied";
-
       const lastKind = lastStaffKindFromLog(conv.staff_message_kind_log);
+
+      const handling_status = resolveHandlingStatus({
+        handling_status: conv.handling_status,
+        unread_count: conv.unread_count,
+        staff_message_kind_log: conv.staff_message_kind_log,
+        last_message_time: conv.last_message_time,
+        last_buyer_message_time: conv.last_buyer_message_time,
+      });
 
       return {
         id: conv.conversation_id,
@@ -142,7 +153,7 @@ export async function GET(request: NextRequest) {
         unread: conv.unread_count,
         pinned: conv.pinned,
         status: conv.status,
-        uiStatus,
+        handling_status,
         type: conv.chat_type ?? "buyer",
         last_staff_send_kind: lastKind ?? null,
       };
@@ -158,6 +169,10 @@ export async function GET(request: NextRequest) {
           .replace(/\s+/g, " ");
         return tokens.every((t) => searchable.includes(t));
       });
+    }
+
+    if (handlingParam && isHandlingStatus(handlingParam)) {
+      chats = chats.filter((c) => c.handling_status === handlingParam);
     }
 
     return NextResponse.json({ chats });

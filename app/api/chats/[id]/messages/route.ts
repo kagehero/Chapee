@@ -13,6 +13,7 @@ import {
   extractInquiredItemsFromOneConversation,
   inferChatMessageSender,
   inferStaffMessageAutoHint,
+  isLatestMessageFromBuyer,
   shopeeMessageTimeToMs,
 } from "@/lib/shopee-conversation-utils";
 import { buildBuyerItemUrl, buildSellerOrderUrl } from "@/lib/shopee-order-utils";
@@ -20,6 +21,10 @@ import { fetchItemCatalogMapByIds, fetchOrderItemInfoMap } from "@/lib/shopee-pr
 import { kindMapFromLog } from "@/lib/staff-message-kind";
 import { getStoredRawMessagesForConversation } from "@/lib/shopee-conversation-db-sync";
 import { reviewAutoReplySchedule } from "@/lib/auto-reply";
+import {
+  type HandlingStatus,
+  resolveHandlingStatus,
+} from "@/lib/handling-status";
 
 /**
  * GET /api/chats/[id]/messages - Get messages for a conversation
@@ -41,6 +46,10 @@ export async function GET(
       customer_name: string;
       customer_avatar_url?: string;
       staff_message_kind_log?: { id: string; kind: string }[];
+      unread_count?: number;
+      handling_status?: HandlingStatus;
+      last_message_time?: Date;
+      last_buyer_message_time?: Date;
     }>("shopee_conversations");
 
     const conversation = await convCol.findOne({
@@ -134,29 +143,7 @@ export async function GET(
         if (fromApi) customerAvatar = fromApi;
 
         // Extract products the buyer is inquiring about from the conversation object
-        // Debug: log the raw keys at each nesting level so we can map the real field names
-        const resp2 = d.response as Record<string, unknown> | undefined;
-        const convObj2 = (resp2?.conversation ?? resp2 ?? d) as Record<string, unknown>;
-        console.log(
-          `[inquired-debug] conv=${conversationId} root_keys=${Object.keys(d).join(",")} resp_keys=${Object.keys(resp2 ?? {}).join(",")} convObj_keys=${Object.keys(convObj2).join(",")}`
-        );
-        const latestContent = convObj2.latest_message_content;
-        if (latestContent && typeof latestContent === "object") {
-          console.log(
-            `[inquired-debug] latest_message_content keys=${Object.keys(latestContent as object).join(",")}`,
-            JSON.stringify(latestContent).slice(0, 400)
-          );
-        }
-        if (convObj2.item_list !== undefined || convObj2.items !== undefined) {
-          console.log(
-            `[inquired-debug] item_list=${JSON.stringify(convObj2.item_list).slice(0, 400)}`
-          );
-        }
         const rawInquired = extractInquiredItemsFromOneConversation(d);
-        console.log(
-          `[inquired-debug] rawInquired=${rawInquired.length}`,
-          JSON.stringify(rawInquired).slice(0, 400)
-        );
         if (rawInquired.length > 0) {
           const inquiredItemIds = rawInquired
             .map((it) => Number(it.item_id))
@@ -244,7 +231,6 @@ export async function GET(
         const n = Number(itemId);
         if (Number.isFinite(n) && n > 0) fallbackItemIds.push(n);
         fallbackRaw.push({ item_id: itemId ? String(itemId) : undefined, shop_id: shopId, name, image_url });
-        console.log(`[inquired-fallback] conv=${conversationId} item_id=${itemId} name=${name} image=${image_url}`);
       }
 
       if (fallbackRaw.length > 0) {
@@ -319,25 +305,6 @@ export async function GET(
       const msgIdStr = String(msg.message_id ?? msg.id ?? index);
       const display = displayFromShopeeChatMessage(msg);
 
-      // Debug: log raw payload when a message falls back to [bracket] format
-      // so unknown Shopee message structures can be identified and handled.
-      if (
-        display.kind === "text" &&
-        display.summary.startsWith("[") &&
-        display.summary.endsWith("]")
-      ) {
-        console.log(
-          `[messages-debug] unresolved bracket summary conv=${conversationId} msgId=${msgIdStr} type=${String(msg.message_type ?? msg.type ?? "")} summary=${display.summary}`,
-          JSON.stringify(msg).slice(0, 1200)
-        );
-      }
-      // Debug: also log first few messages raw structure (to see item_id paths)
-      if (index < 2) {
-        console.log(
-          `[msg-raw-debug] conv=${conversationId} idx=${index} type=${String(msg.message_type ?? msg.type ?? "")} kind=${display.kind} summary=${display.summary.slice(0, 60)}`,
-          JSON.stringify(msg).slice(0, 600)
-        );
-      }
       const orderSn = display.order?.order_sn?.trim();
       const order_url =
         orderSn && orderSn.length >= 8
@@ -452,6 +419,38 @@ export async function GET(
 
     messages.sort((a, b) => a.timestamp_ms - b.timestamp_ms);
 
+    const buyerFromRaw = isLatestMessageFromBuyer(
+      rawList as Record<string, unknown>[],
+      conversation.shop_id,
+      Number(conversation.customer_id)
+    );
+    const handling_status = resolveHandlingStatus(
+      {
+        handling_status: conversation.handling_status,
+        unread_count: Math.max(0, Number(conversation.unread_count ?? 0)),
+        staff_message_kind_log: conversation.staff_message_kind_log,
+        last_message_time: conversation.last_message_time,
+        last_buyer_message_time: conversation.last_buyer_message_time,
+      },
+      { buyer_last_message_is_latest: buyerFromRaw }
+    );
+
+    if (
+      handling_status === "unreplied" &&
+      conversation.handling_status &&
+      ["completed", "in_progress", "auto_replied_pending"].includes(
+        conversation.handling_status
+      )
+    ) {
+      await convCol.updateOne(
+        {
+          conversation_id: String(conversationId),
+          shop_id: conversation.shop_id,
+        },
+        { $set: { handling_status: "unreplied", updated_at: new Date() } }
+      );
+    }
+
     return NextResponse.json({
       conversation: {
         id: conversationId,
@@ -462,6 +461,7 @@ export async function GET(
         customer_avatar_url: customerAvatar,
         shop_logo_url: shopLogo,
         inquired_items: inquiredItems,
+        handling_status,
       },
       messages,
     });
