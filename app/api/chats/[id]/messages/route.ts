@@ -294,8 +294,11 @@ export async function GET(
       const tsRaw = msg.timestamp ?? msg.created_timestamp ?? msg.time;
       const ms = shopeeMessageTimeToMs(tsRaw);
       const sec = ms / 1000;
-      const dateKey = new Date(ms).toISOString().slice(0, 10);
+      const dateKey = new Date(ms)
+        .toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" })
+        .replace(/\//g, "-");
       const datetime = new Date(ms).toLocaleString("ja-JP", {
+        timeZone: "Asia/Tokyo",
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
@@ -352,6 +355,7 @@ export async function GET(
         order_url,
         item_url,
         time: new Date(ms).toLocaleTimeString("ja-JP", {
+          timeZone: "Asia/Tokyo",
           hour: "2-digit",
           minute: "2-digit",
         }),
