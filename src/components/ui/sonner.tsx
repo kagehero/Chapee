@@ -7,11 +7,14 @@ type ToasterProps = React.ComponentProps<typeof Sonner>;
 /**
  * ThemeProvider（next-themes）をルートに置いていないため、トーストはライトテーマで固定。
  * ダークモード対応する場合は ThemeProvider でラップしてから useTheme を使う。
+ *
+ * position=top-center: 下部固定のチャット入力・送信ボタンを覆わないよう上中央に表示する。
  */
 const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
       theme="light"
+      position="top-center"
       className="toaster group"
       toastOptions={{
         classNames: {

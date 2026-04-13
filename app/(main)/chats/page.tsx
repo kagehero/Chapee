@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   Search, Users as UsersIcon,
   ChevronRight, User,
-  AlertCircle, Loader2, RefreshCw,
+  AlertCircle, Loader2, RefreshCw, Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,7 @@ export default function ChatsPage() {
   const [chats, setChats] = useState<ChatRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [fetching, setFetching] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState("全て");
   const [selectedHandling, setSelectedHandling] = useState<HandlingStatus | "all">("all");
   const [search, setSearch] = useState("");
@@ -153,6 +154,48 @@ export default function ChatsPage() {
     }
   };
 
+  /** Shopeeから最新メッセージを能動的に取得して一覧を更新する */
+  const handleFetchMessages = async () => {
+    setFetching(true);
+    try {
+      const res = await fetch("/api/shopee/sync", { method: "POST" });
+      const data = (await res.json()) as {
+        error?: string;
+        results?: Array<{
+          error?: string;
+          delta?: { new_conversation_ids?: string[]; new_notification_ids?: string[] };
+        }>;
+        auto_reply_after_sync?: { sent: number };
+      };
+      if (!res.ok) throw new Error(data.error || "取得に失敗しました");
+
+      dispatchShopNotificationsRefresh({
+        newNotificationIdsTotal: sumNewNotificationIdsFromSyncResults(data.results),
+      });
+
+      await loadChats();
+
+      const newMsgs = data.results?.reduce(
+        (s, r) => s + (r.delta?.new_conversation_ids?.length ?? 0),
+        0
+      ) ?? 0;
+      const autoSent = data.auto_reply_after_sync?.sent ?? 0;
+
+      if (newMsgs > 0) {
+        toast.success(`${newMsgs}件の新着会話を取得しました`);
+      } else {
+        toast.success("メッセージを取得しました（新着なし）");
+      }
+      if (autoSent > 0) {
+        toast.info(`自動返信を ${autoSent} 件送信しました`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "取得に失敗しました");
+    } finally {
+      setFetching(false);
+    }
+  };
+
   const filtered = chats.filter((c) => {
     const matchCountry = selectedCountry === "全て" || c.country === selectedCountry;
     const matchHandling =
@@ -225,6 +268,20 @@ export default function ChatsPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={handleFetchMessages}
+            disabled={fetching || loading}
+            className="gap-2 rounded-xl"
+          >
+            {fetching ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Download size={16} />
+            )}
+            {fetching ? "取得中…" : "最新メッセージを取得"}
+          </Button>
           <Button
             variant="outline"
             size="sm"
