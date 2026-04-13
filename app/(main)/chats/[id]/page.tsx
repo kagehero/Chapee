@@ -227,16 +227,18 @@ function ChatMessageBody({ msg, isStaff }: { msg: Message; isStaff: boolean }) {
 
 function formatMessageTimestamps(ms: number) {
   const d = new Date(ms);
+  const tz = "Asia/Tokyo";
   return {
-    time: d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }),
+    time: d.toLocaleTimeString("ja-JP", { timeZone: tz, hour: "2-digit", minute: "2-digit" }),
     datetime: d.toLocaleString("ja-JP", {
+      timeZone: tz,
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
     }),
-    date_key: d.toISOString().slice(0, 10),
+    date_key: d.toLocaleDateString("ja-JP", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\//g, "-"),
     timestamp_ms: ms,
   };
 }
