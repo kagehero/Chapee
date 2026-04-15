@@ -42,6 +42,7 @@ npm run start
 |--------------|------|
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 本番デプロイ、環境変数、Vercel / MongoDB、Webhook・Cron |
 | [docs/HANDOVER.md](docs/HANDOVER.md) | システム構成、主要データ、外部サービス、検証チェックリスト |
+| [docs/MONGODB_SCHEMA.md](docs/MONGODB_SCHEMA.md) | **MongoDB コレクション別フィールド定義**（アプリ準拠） |
 | [docs/FEATURE_SPEC.md](docs/FEATURE_SPEC.md) | **画面一覧・遷移・API エンドポイント一覧**（機能仕様） |
 | [.env.example](.env.example) | 環境変数テンプレート（秘密値は実値を入れずに配布） |
 

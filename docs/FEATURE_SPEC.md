@@ -150,6 +150,10 @@ flowchart LR
 
 ---
 
-## 6. 改訂
+## 6. 関連資料
+
+- [MongoDB スキーマ定義（MONGODB_SCHEMA.md）](./MONGODB_SCHEMA.md)
+
+## 7. 改訂
 
 アプリの変更に合わせて本書を更新してください。`vercel.json` の Cron や `app/api` の追加・削除時は **3 章** を必ず見直してください。

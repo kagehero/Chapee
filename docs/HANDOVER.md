@@ -42,7 +42,7 @@
 | `translation_settings` | 翻訳プロバイダ・API キー（DB 保存） |
 | `staff_members` | 担当者マスタ（UI 用） |
 
-※ スキーマは**アプリ側で型定義**されており、MongoDB はスキーマレスです。実際のフィールドはコード内の `getCollection` 型を参照してください。
+**フィールド単位の定義**は [MONGODB_SCHEMA.md](./MONGODB_SCHEMA.md) を参照してください。MongoDB 自体はスキーマレスのため、旧データに追加キーが含まれる場合があります。
 
 ## 4. 環境変数
 
