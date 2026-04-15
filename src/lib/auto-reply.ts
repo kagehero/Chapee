@@ -1,7 +1,7 @@
 import { ObjectId } from "mongodb";
 import { getCollection } from "@/lib/mongodb";
-import { sendMessage } from "@/lib/shopee-api";
-import { getShopCountry, getValidToken } from "@/lib/shopee-token";
+import { fetchAllConversationMessages, sendMessage } from "@/lib/shopee-api";
+import { getShopCountry, getValidToken, resolveCountryForShop } from "@/lib/shopee-token";
 import {
   extractMessageIdFromSendResponse,
   recordStaffMessageKind,
@@ -344,12 +344,59 @@ export async function processDueAutoReplies(): Promise<ProcessAutoReplyResult> {
     const convId = String(doc.conversation_id);
     const shopId = doc.shop_id;
 
+    if (doc.chat_type === "notification") {
+      await clearAutoReplySchedule(convId, shopId);
+      result.skipped++;
+      continue;
+    }
+
+    /**
+     * Shopee 側で手動返信済みなのに DB に予約が残っているケースを防ぐ:
+     * 送信直前に生メッセージを取得し reviewAutoReplySchedule でキャンセル・再計算する。
+     */
+    let accessToken: string;
+    let countryKey: string;
+    try {
+      accessToken = await getValidToken(shopId);
+      const countryResolved = await resolveCountryForShop(shopId, doc.country);
+      countryKey = String(countryResolved).toUpperCase();
+      const rawList = await fetchAllConversationMessages(
+        accessToken,
+        shopId,
+        convId,
+        { country: countryResolved }
+      );
+      await reviewAutoReplySchedule(
+        rawList as Record<string, unknown>[],
+        shopId,
+        convId
+      );
+    } catch (e) {
+      console.warn(`[auto-reply] pre-send verify failed conv=${convId}:`, e);
+      result.skipped++;
+      continue;
+    }
+
+    const afterReview = await col.findOne({
+      conversation_id: convId,
+      shop_id: shopId,
+    });
+    const nowSend = new Date();
+    if (
+      !afterReview?.auto_reply_pending ||
+      !(afterReview.auto_reply_due_at instanceof Date) ||
+      afterReview.auto_reply_due_at.getTime() > nowSend.getTime()
+    ) {
+      result.skipped++;
+      continue;
+    }
+
     const claimed = await col.findOneAndUpdate(
       {
         conversation_id: convId,
         shop_id: shopId,
         auto_reply_pending: true,
-        auto_reply_due_at: { $lte: now },
+        auto_reply_due_at: { $lte: nowSend },
       },
       {
         $set: {
@@ -367,14 +414,6 @@ export async function processDueAutoReplies(): Promise<ProcessAutoReplyResult> {
     }
 
     try {
-      if (doc.chat_type === "notification") {
-        result.skipped++;
-        continue;
-      }
-
-      const countryKey = String(
-        doc.country ?? (await getShopCountry(shopId)) ?? "SG"
-      ).toUpperCase();
       const cfg = countries[countryKey];
       if (!cfg?.enabled || !cfg.template_id?.trim()) {
         result.skipped++;
@@ -387,7 +426,6 @@ export async function processDueAutoReplies(): Promise<ProcessAutoReplyResult> {
         continue;
       }
 
-      const accessToken = await getValidToken(shopId);
       const buyerId = Number(doc.customer_id);
       if (!Number.isFinite(buyerId) || buyerId <= 0) {
         result.skipped++;
